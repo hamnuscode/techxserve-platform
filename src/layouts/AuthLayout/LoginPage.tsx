@@ -86,11 +86,17 @@ export function LoginPage() {
         Demo build — any email/password signs you in.
       </p>
       <div className="mt-3 flex items-center justify-center gap-4 text-xs">
+        <button
+          type="button"
+          onClick={() => { login('faisal@techxserve.co'); navigate(routes.dashboard); }}
+          className="font-medium text-content-muted hover:text-brand-600"
+        >
+          Admin Panel →
+        </button>
+        <span className="text-content-subtle">·</span>
         <a href={routes.cpLogin} className="font-medium text-content-muted hover:text-brand-600">Client Portal →</a>
         <span className="text-content-subtle">·</span>
         <a href={routes.epLogin} className="font-medium text-content-muted hover:text-brand-600">Employee Portal →</a>
-        <span className="text-content-subtle">·</span>
-        <a href={routes.devComponents} className="font-medium text-content-muted hover:text-brand-600">Components</a>
       </div>
     </AuthLayout>
   );
