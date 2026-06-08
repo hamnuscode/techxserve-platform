@@ -1,17 +1,18 @@
+import { LayoutDashboard, CalendarCheck, Plane, Wallet, ListTodo, Clock, CreditCard, FolderArchive, User } from 'lucide-react';
 import { PortalShell, type PortalNavItem } from '@/layouts/PortalShell';
 import { routes } from '@/config/routes';
 import { useMe } from './hooks';
 
 const NAV: PortalNavItem[] = [
-  { label: 'My Dashboard', to: routes.epDashboard, end: true },
-  { label: 'Attendance', to: routes.epAttendance },
-  { label: 'Leaves', to: routes.epLeaves },
-  { label: 'Payslips', to: routes.epPayslips },
-  { label: 'Tasks', to: routes.epTasks },
-  { label: 'Timesheets', to: routes.epTimesheets },
-  { label: 'Expenses', to: routes.epExpenses },
-  { label: 'Documents', to: routes.epDocuments },
-  { label: 'My Profile', to: routes.epProfile },
+  { label: 'My Dashboard', to: routes.epDashboard, icon: LayoutDashboard, end: true },
+  { label: 'Attendance', to: routes.epAttendance, icon: CalendarCheck },
+  { label: 'Leaves', to: routes.epLeaves, icon: Plane },
+  { label: 'Payslips', to: routes.epPayslips, icon: Wallet },
+  { label: 'Tasks', to: routes.epTasks, icon: ListTodo },
+  { label: 'Timesheets', to: routes.epTimesheets, icon: Clock },
+  { label: 'Expenses', to: routes.epExpenses, icon: CreditCard },
+  { label: 'Documents', to: routes.epDocuments, icon: FolderArchive },
+  { label: 'My Profile', to: routes.epProfile, icon: User },
 ];
 
 export function EmployeePortalLayout() {
