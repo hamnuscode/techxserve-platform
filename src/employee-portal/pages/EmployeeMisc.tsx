@@ -1,72 +1,120 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, FileText, Download, Wallet, CheckCircle2, Clock, ShieldCheck } from 'lucide-react';
-import { PageHeader, KpiStrip, useFormatMoney } from '@/shared';
+import { PageHeader, KpiStrip, useFormatMoney, ChangePasswordModal } from '@/shared';
 import { Button, Card, CardTitle, Input, Select, Textarea, FormField, Toggle } from '@ds/primitives';
 import { KPICard, DataTable, StatusBadge, type Column } from '@ds/data-display';
 import { EmptyState, Modal, toast } from '@ds/feedback';
 import { formatDate } from '@/lib/format';
-import { useMe } from '../hooks';
+import { timesheetsApi, claimsApi, type TimesheetRow, type DayHours, type ExpenseClaim } from '@/data/mock-api';
+import { useMe, useMyEmployeeId } from '../hooks';
 
 /* ---- E2.7 Timesheets ---- */
-const PROJECTS = ['Website Revamp', 'ERP Rollout', 'Internal'];
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DAYS: (keyof DayHours)[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/** Monday of the current week as yyyy-mm-dd. */
+function weekStartOf(d = new Date()): string {
+  const day = (d.getDay() + 6) % 7; // 0 = Monday
+  const mon = new Date(d);
+  mon.setDate(d.getDate() - day);
+  return mon.toISOString().slice(0, 10);
+}
 
 export function EmployeeTimesheets() {
-  const [grid, setGrid] = useState<number[][]>(PROJECTS.map(() => DAYS.map(() => 0)));
-  const rowTotal = (r: number[]) => r.reduce((s, v) => s + (v || 0), 0);
-  const colTotal = (c: number) => grid.reduce((s, r) => s + (r[c] || 0), 0);
-  const grand = grid.reduce((s, r) => s + rowTotal(r), 0);
+  const employeeId = useMyEmployeeId();
+  const qc = useQueryClient();
+  const weekStart = weekStartOf();
+  const { data: sheet } = useQuery({
+    queryKey: ['ep-timesheet', employeeId, weekStart],
+    queryFn: () => timesheetsApi.mine(employeeId!, weekStart),
+    enabled: !!employeeId,
+  });
+
+  const [rows, setRows] = useState<TimesheetRow[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (sheet) setRows(sheet.rows.length ? sheet.rows : [{ label: '', hours: {} }]);
+  }, [sheet]);
+
+  const locked = sheet?.status === 'Submitted' || sheet?.status === 'Approved';
+  const rowTotal = (r: TimesheetRow) => DAYS.reduce((s, d) => s + (Number(r.hours[d]) || 0), 0);
+  const colTotal = (d: keyof DayHours) => rows.reduce((s, r) => s + (Number(r.hours[d]) || 0), 0);
+  const grand = rows.reduce((s, r) => s + rowTotal(r), 0);
+
+  const setHour = (ri: number, d: keyof DayHours, v: string) =>
+    setRows((rs) => rs.map((r, i) => (i === ri ? { ...r, hours: { ...r.hours, [d]: Number(v) } } : r)));
+  const setLabel = (ri: number, v: string) => setRows((rs) => rs.map((r, i) => (i === ri ? { ...r, label: v } : r)));
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ['ep-timesheet'] });
+  const onSaveDraft = async () => { if (!sheet) return; setBusy(true); try { await timesheetsApi.saveRows(sheet.id, rows); toast.success('Draft saved'); refresh(); } finally { setBusy(false); } };
+  const onSubmit = async () => { if (!sheet) return; setBusy(true); try { await timesheetsApi.submit(sheet.id, rows); toast.success('Week submitted for approval'); refresh(); } finally { setBusy(false); } };
 
   return (
     <div>
-      <PageHeader title="Timesheets" description="Log hours and submit your week for approval." actions={<><Button variant="outline" onClick={() => toast.success('Draft saved')}>Save Draft</Button><Button onClick={() => toast.success('Week submitted for approval')}>Submit Week</Button></>} />
+      <PageHeader
+        title="Timesheets"
+        description="Log hours and submit your week for approval."
+        actions={!locked && (
+          <>
+            <Button variant="outline" loading={busy} onClick={onSaveDraft}>Save Draft</Button>
+            <Button loading={busy} onClick={onSubmit}>Submit Week</Button>
+          </>
+        )}
+      />
+      {sheet?.status === 'Rejected' && sheet.rejectionNote && (
+        <div className="mb-4 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">Returned by your manager: {sheet.rejectionNote}</div>
+      )}
       <Card padding="none">
-        <div className="flex items-center justify-between border-b border-line p-4"><CardTitle>Week of 2–8 Jun 2026</CardTitle><StatusBadge status="Draft" /></div>
+        <div className="flex items-center justify-between border-b border-line p-4">
+          <CardTitle>Week of {formatDate(weekStart)}</CardTitle>
+          <StatusBadge status={sheet?.status ?? 'Draft'} />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="border-b border-line bg-surface-sunken/60 text-left text-2xs uppercase tracking-wide text-content-subtle"><th className="px-4 py-2.5">Project</th>{DAYS.map((d) => <th key={d} className="px-2 py-2.5 text-center">{d}</th>)}<th className="px-4 py-2.5 text-right">Total</th></tr></thead>
+            <thead><tr className="border-b border-line bg-surface-sunken/60 text-left text-2xs uppercase tracking-wide text-content-subtle"><th className="px-4 py-2.5">Project / Task</th>{DAY_LABELS.map((d) => <th key={d} className="px-2 py-2.5 text-center">{d}</th>)}<th className="px-4 py-2.5 text-right">Total</th></tr></thead>
             <tbody>
-              {PROJECTS.map((p, ri) => (
-                <tr key={p} className="border-b border-line last:border-0">
-                  <td className="px-4 py-2 font-medium text-content">{p}</td>
-                  {DAYS.map((_, ci) => (
-                    <td key={ci} className="px-1 py-2">
-                      <Input sizeVariant="sm" type="number" className="w-14 text-center" value={grid[ri]![ci]!} onChange={(e) => setGrid((g) => g.map((row, i) => (i === ri ? row.map((v, j) => (j === ci ? Number(e.target.value) : v)) : row)))} />
-                    </td>
+              {rows.map((r, ri) => (
+                <tr key={ri} className="border-b border-line last:border-0">
+                  <td className="px-4 py-2"><Input sizeVariant="sm" className="w-44" placeholder="What did you work on?" value={r.label} disabled={locked} onChange={(e) => setLabel(ri, e.target.value)} /></td>
+                  {DAYS.map((d) => (
+                    <td key={d} className="px-1 py-2"><Input sizeVariant="sm" type="number" className="w-14 text-center" disabled={locked} value={r.hours[d] ?? 0} onChange={(e) => setHour(ri, d, e.target.value)} /></td>
                   ))}
-                  <td className="nums px-4 py-2 text-right font-semibold">{rowTotal(grid[ri]!)}</td>
+                  <td className="nums px-4 py-2 text-right font-semibold">{rowTotal(r)}</td>
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr className="bg-surface-sunken/40 font-semibold"><td className="px-4 py-2.5">Total</td>{DAYS.map((_, ci) => <td key={ci} className="nums px-2 py-2.5 text-center">{colTotal(ci)}</td>)}<td className="nums px-4 py-2.5 text-right text-brand-600">{grand}h</td></tr></tfoot>
+            <tfoot><tr className="bg-surface-sunken/40 font-semibold"><td className="px-4 py-2.5">Total</td>{DAYS.map((d) => <td key={d} className="nums px-2 py-2.5 text-center">{colTotal(d)}</td>)}<td className="nums px-4 py-2.5 text-right text-brand-600">{grand}h</td></tr></tfoot>
           </table>
         </div>
+        {!locked && (
+          <div className="border-t border-line p-3">
+            <Button size="sm" variant="ghost" icon={Plus} onClick={() => setRows((rs) => [...rs, { label: '', hours: {} }])}>Add Row</Button>
+          </div>
+        )}
       </Card>
     </div>
   );
 }
 
-/* ---- E2.8 My Expenses ---- */
-interface Reimb { id: string; date: string; category: string; description: string; amount: number; status: string; }
-const SEED: Reimb[] = [
-  { id: 'R1', date: '2026-06-02', category: 'Travel', description: 'Client visit — fuel', amount: 4500, status: 'Pending' },
-  { id: 'R2', date: '2026-05-20', category: 'Software', description: 'Design tool license', amount: 12000, status: 'Reimbursed' },
-];
-
+/* ---- E2.8 My Expenses (Reimbursements) ---- */
 export function EmployeeExpenses() {
   const money = useFormatMoney();
-  const [rows, setRows] = useState(SEED);
+  const employeeId = useMyEmployeeId();
+  const qc = useQueryClient();
+  const { data: rows = [] } = useQuery({ queryKey: ['ep-claims'], queryFn: claimsApi.mine });
   const [open, setOpen] = useState(false);
   const { register, handleSubmit, reset } = useForm<{ date: string; category: string; description: string; amount: number }>({ defaultValues: { category: 'Travel', date: new Date().toISOString().slice(0, 10) } });
+  const refresh = () => qc.invalidateQueries({ queryKey: ['ep-claims'] });
 
-  const columns: Column<Reimb>[] = [
+  const columns: Column<ExpenseClaim>[] = [
     { key: 'date', header: 'Date', render: (r) => formatDate(r.date) },
-    { key: 'category', header: 'Category', render: (r) => r.category },
-    { key: 'description', header: 'Description', render: (r) => r.description },
+    { key: 'category', header: 'Category', render: (r) => r.category ?? '—' },
+    { key: 'description', header: 'Description', render: (r) => r.description ?? '' },
     { key: 'amount', header: 'Amount', align: 'right', render: (r) => <span className="nums font-medium">{money(r.amount)}</span> },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
-    { key: 'actions', header: '', align: 'right', render: (r) => (r.status === 'Pending' ? <Button size="sm" variant="ghost" onClick={() => toast.info('Withdrawn')}>Cancel</Button> : null) },
+    { key: 'actions', header: '', align: 'right', render: (r) => (r.status === 'Pending' ? <Button size="sm" variant="ghost" onClick={async () => { await claimsApi.cancel(r.id); refresh(); toast.info('Withdrawn'); }}>Cancel</Button> : null) },
   ];
 
   return (
@@ -79,13 +127,17 @@ export function EmployeeExpenses() {
       </KpiStrip>
       <DataTable data={rows} columns={columns} rowKey={(r) => r.id} empty={<EmptyState icon={Wallet} title="No expenses" description="Submit a work expense to get reimbursed." />} />
       <Modal open={open} onClose={() => setOpen(false)} title="Submit Expense" size="md"
-        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={handleSubmit((v) => { setRows((r) => [{ id: `R${r.length + 1}`, ...v, amount: Number(v.amount), status: 'Pending' }, ...r]); toast.success('Expense submitted for approval'); reset(); setOpen(false); })}>Submit</Button></>}>
+        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={handleSubmit(async (v) => {
+          if (!employeeId) return;
+          await claimsApi.create({ employeeId, date: v.date, category: v.category, description: v.description, amount: Number(v.amount) });
+          refresh(); toast.success('Expense submitted for approval'); reset(); setOpen(false);
+        })}>Submit</Button></>}>
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField label="Date"><Input type="date" {...register('date')} /></FormField>
           <FormField label="Category"><Select options={['Travel', 'Software', 'Meals', 'Equipment', 'Other'].map((c) => ({ value: c, label: c }))} {...register('category')} /></FormField>
           <FormField label="Amount" required><Input type="number" {...register('amount')} /></FormField>
           <FormField label="Description" className="sm:col-span-2"><Textarea rows={2} {...register('description')} /></FormField>
-          <p className="text-xs text-content-subtle sm:col-span-2">Receipt upload required on the full form.</p>
+          <p className="text-xs text-content-subtle sm:col-span-2">Receipt upload available on the full form.</p>
         </div>
       </Modal>
     </div>
@@ -115,6 +167,7 @@ export function EmployeeProfile() {
   const { data: me } = useMe();
   const money = useFormatMoney();
   const [twoFactor, setTwoFactor] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
   return (
     <div>
       <PageHeader title="My Profile" description="View your details and update contact info." />
@@ -148,13 +201,14 @@ export function EmployeeProfile() {
           <Card>
             <CardTitle className="mb-4 flex items-center gap-2"><ShieldCheck size={18} /> Password & Security</CardTitle>
             <div className="space-y-4">
-              <Button variant="outline" onClick={() => toast.info('Change password (stub)')}>Change Password</Button>
+              <Button variant="outline" onClick={() => setPwOpen(true)}>Change Password</Button>
               <label className="flex items-center justify-between text-sm">
                 <span className="font-medium text-content">Two-factor authentication</span>
                 <Toggle checked={twoFactor} onChange={(v) => { setTwoFactor(v); toast.success(v ? '2FA enabled' : '2FA disabled'); }} />
               </label>
             </div>
           </Card>
+          <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
         </div>
       </div>
     </div>

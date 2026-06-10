@@ -111,9 +111,12 @@ const extraRoutes: RouteObject[] = [
   { path: routes.project(), element: page(<ProjectDetailPage />) },
 ];
 
+const SsaCompaniesPage = lazy(() => import('@panels/ssa').then((m) => ({ default: m.SsaCompaniesPage })));
+
 export const router = createBrowserRouter([
   { path: routes.login, element: <LoginPage /> },
   { path: routes.devComponents, element: page(<ComponentsGallery />) },
+  { path: routes.companies, element: page(<SsaCompaniesPage />) },
 
   // ---- Client Portal ----
   { path: routes.cpLogin, element: <PortalLoginPage title="Client Portal" subtitle="Sign in to view your account" redirectTo={routes.cpDashboard} poweredBy /> },

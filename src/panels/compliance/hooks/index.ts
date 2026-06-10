@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { datesApi, documentsApi } from '@/data/mock-api';
 import { qk } from '@/data/query-keys';
-import type { ImportantDate } from '@/types';
+import type { DocFile, DocFolder, ImportantDate } from '@/types';
 
 export function useImportantDates(filters: { category?: string; search?: string }) {
   return useQuery({ queryKey: qk.importantDates(filters), queryFn: () => datesApi.list(filters) });
@@ -20,4 +20,21 @@ export function useDocFolders() {
 }
 export function useDocFiles(folderId: string) {
   return useQuery({ queryKey: qk.docFiles(folderId), queryFn: () => documentsApi.files(folderId), enabled: !!folderId });
+}
+export function useDocMutations() {
+  const qc = useQueryClient();
+  const refreshFolders = () => qc.invalidateQueries({ queryKey: qk.docFolders });
+  const createFolder = useMutation({
+    mutationFn: ({ name, parentId }: { name: string; parentId?: string | null }) => documentsApi.createFolder(name, parentId ?? null),
+    onSuccess: refreshFolders,
+  });
+  const upload = useMutation({
+    mutationFn: ({ folder, file }: { folder: DocFolder; file: File }) => documentsApi.uploadFile(folder, file),
+    onSuccess: (_d, v) => { refreshFolders(); qc.invalidateQueries({ queryKey: qk.docFiles(v.folder.id) }); },
+  });
+  const removeFile = useMutation({
+    mutationFn: (file: DocFile) => documentsApi.deleteFile(file),
+    onSuccess: (_d, file) => { refreshFolders(); qc.invalidateQueries({ queryKey: qk.docFiles(file.folderId) }); },
+  });
+  return { createFolder, upload, removeFile };
 }

@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
   Plus,
@@ -22,6 +23,7 @@ import { DropdownMenu, Popover } from '@ds/overlays';
 import { Avatar } from '@ds/data-display';
 import { useUIStore } from '@/app/stores/ui';
 import { useAuthStore } from '@/app/stores/auth';
+import { ChangePasswordModal } from '@/shared';
 import { routes } from '@/config/routes';
 import { notificationsApi } from '@/data/mock-api';
 import { qk } from '@/data/query-keys';
@@ -40,6 +42,10 @@ export function TopBar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const setViewAsCompany = useAuthStore((s) => s.setViewAsCompany);
+  const qc = useQueryClient();
+  const [pwOpen, setPwOpen] = useState(false);
+  const isSsa = user?.role === 'Super Super Admin';
 
   const { data: notifications = [] } = useQuery({
     queryKey: qk.notifications,
@@ -147,12 +153,13 @@ export function TopBar() {
           }
           items={[
             { label: 'My Profile', icon: User },
-            { label: 'Change Password', icon: KeyRound },
-            { label: 'Switch Company', icon: Building2 },
-            'divider',
+            { label: 'Change Password', icon: KeyRound, onClick: () => setPwOpen(true) },
+            ...(isSsa ? [{ label: 'Exit to Companies', icon: Building2, onClick: async () => { await setViewAsCompany(null); qc.clear(); navigate(routes.companies); } }] : []),
+            'divider' as const,
             { label: 'Sign Out', icon: LogOut, danger: true, onClick: () => { logout(); navigate(routes.login); } },
           ]}
         />
+        <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
       </div>
     </header>
   );

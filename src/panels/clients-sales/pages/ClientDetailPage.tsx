@@ -16,7 +16,8 @@ import {
   Download,
   FileText,
 } from 'lucide-react';
-import { PageHeader, useFormatMoney } from '@/shared';
+import { PageHeader, useFormatMoney, InvitePortalButton, EmailComposerModal } from '@/shared';
+import { downloadStatementPdf, downloadReportPdf } from '@/lib/pdf';
 import { Button, Card, CardHeader, CardTitle, Tabs, type TabItem } from '@ds/primitives';
 import { StatusBadge, DataTable, DateBadge, type Column } from '@ds/data-display';
 import { EmptyState, ErrorState, Skeleton, toast } from '@ds/feedback';
@@ -46,6 +47,7 @@ export function ClientDetailPage() {
   const money = useFormatMoney();
   const [tab, setTab] = useState('overview');
   const [editOpen, setEditOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
 
   const { data: client, isLoading, isError, refetch } = useClient(id);
   const { data: contracts = [] } = useClientContracts(id);
@@ -138,14 +140,18 @@ export function ClientDetailPage() {
         }
         actions={
           <>
+            <InvitePortalButton kind="client" recordId={client.id} defaultEmail={client.email} />
             <Button variant="outline" icon={Pencil} onClick={() => setEditOpen(true)}>Edit</Button>
             <Button icon={Plus} onClick={() => navigate(`${routes.invoiceNew}?client=${client.id}`)}>New Invoice</Button>
             <DropdownMenu
               trigger={<Button variant="outline" icon={MoreHorizontal} aria-label="More" />}
               items={[
                 { label: 'Record Payment', icon: Receipt, onClick: () => toast.info('Open an invoice to record payment') },
-                { label: 'Send Statement', icon: Send, onClick: () => toast.success('Statement email composer (stub)') },
-                { label: 'Export PDF', icon: Download, onClick: () => toast.success('Exported client.pdf') },
+                { label: 'Send Statement', icon: Send, onClick: () => setEmailOpen(true) },
+                { label: 'Export PDF', icon: Download, onClick: () => { downloadReportPdf(`Client ${client.code}`, [
+                  { label: 'Name', value: client.name }, { label: 'Email', value: client.email }, { label: 'Phone', value: client.phone },
+                  { label: 'Industry', value: client.industry }, { label: 'Outstanding', value: money(client.outstanding) }, { label: 'Status', value: client.status },
+                ]); toast.success('Exported client.pdf'); } },
               ]}
             />
           </>
@@ -212,7 +218,12 @@ export function ClientDetailPage() {
         <Card padding="none">
           <div className="flex items-center justify-between border-b border-line p-4">
             <CardTitle>Running Statement</CardTitle>
-            <Button size="sm" variant="outline" icon={Download} onClick={() => toast.success('Statement PDF exported')}>Export PDF</Button>
+            <Button size="sm" variant="outline" icon={Download} onClick={() => {
+              let bal = 0;
+              const rows = statementRows.map((r) => { bal += r.debit - r.credit; return { ...r, balance: bal }; });
+              downloadStatementPdf(client.name, rows);
+              toast.success('Statement PDF exported');
+            }}>Export PDF</Button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -279,6 +290,7 @@ export function ClientDetailPage() {
       )}
 
       <ClientFormModal open={editOpen} onClose={() => setEditOpen(false)} client={client} />
+      <EmailComposerModal open={emailOpen} onClose={() => setEmailOpen(false)} defaultTo={client.email} defaultSubject={`Statement of account — ${client.name}`} defaultBody={`Dear ${client.name},\n\nPlease find your statement of account attached.\n\nRegards`} />
     </div>
   );
 }

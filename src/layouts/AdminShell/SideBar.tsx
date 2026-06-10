@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -7,6 +8,7 @@ import { navGroups, type NavGroup, type NavItem } from '@/config/nav';
 import { isPhaseActive, PhaseBadge } from '@/config/phases';
 import { Flyout } from '@ds/overlays';
 import { useUIStore } from '@/app/stores/ui';
+import { settingsApi } from '@/data/mock-api';
 
 function ItemLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const disabled = !isPhaseActive(item.phase);
@@ -115,6 +117,7 @@ function Group({ group, collapsed }: { group: NavGroup; collapsed: boolean }) {
 export function SideBar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggle = useUIStore((s) => s.toggleSidebar);
+  const { data: branding } = useQuery({ queryKey: ['branding'], queryFn: settingsApi.branding });
 
   return (
     <aside
@@ -125,12 +128,16 @@ export function SideBar() {
     >
       {/* Brand */}
       <div className={cn('flex h-topbar items-center gap-2.5 border-b border-line px-4', collapsed && 'justify-center px-0')}>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-600 font-display text-lg font-bold text-white shadow-sm">
-          T
-        </div>
+        {branding?.logoUrl ? (
+          <img src={branding.logoUrl} alt="Logo" className="h-9 w-9 shrink-0 rounded-lg object-contain" />
+        ) : (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-600 font-display text-lg font-bold text-white shadow-sm">
+            {(branding?.name ?? 'T').charAt(0).toUpperCase()}
+          </div>
+        )}
         {!collapsed && (
           <div className="min-w-0">
-            <p className="truncate font-display text-sm font-bold leading-tight text-content">TechxServe</p>
+            <p className="truncate font-display text-sm font-bold leading-tight text-content">{branding?.name ?? 'TechxServe'}</p>
             <p className="truncate text-2xs text-content-subtle">Business Platform</p>
           </div>
         )}

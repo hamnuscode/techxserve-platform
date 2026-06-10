@@ -1,6 +1,7 @@
 import type { Employee, Paged } from '@/types';
-import { db, nextId } from './db';
-import { paginate, resolve, sortRows, textMatch, type ListParams } from './transport';
+import { supabase } from '@/lib/supabase';
+import { rowToCamel, rowsToCamel, toSnake } from '@/lib/case';
+import type { ListParams } from './transport';
 
 export interface EmployeeFilters extends ListParams {
   branch?: string;
@@ -10,64 +11,52 @@ export interface EmployeeFilters extends ListParams {
   shift?: string;
 }
 
+/** Fields that live only on the employee_list view (derived) — never written back. */
+function toInsert(data: Partial<Employee>) {
+  const { id: _i, code: _c, department: _d, branch: _b, docsComplete: _dc, docsCount: _dn, docsRequired: _dr, ...rest } = data;
+  return toSnake(rest);
+}
+
 export const employeesApi = {
-  list(params: EmployeeFilters = {}): Promise<Paged<Employee>> {
-    let rows = db.employees.filter(
-      (e) =>
-        textMatch([e.name, e.code, e.email, e.phone], params.search) &&
-        (!params.branch || e.branchId === params.branch) &&
-        (!params.department || e.departmentId === params.department) &&
-        (!params.type || e.type === params.type) &&
-        (!params.status || e.status === params.status) &&
-        (!params.shift || e.shift === params.shift),
-    );
-    rows = sortRows(rows, params, {
-      name: (e) => e.name,
-      code: (e) => e.code,
-      department: (e) => e.department,
-      branch: (e) => e.branch,
-      joinDate: (e) => e.joinDate,
-    });
-    return resolve(paginate(rows, params));
-  },
+  async list(params: EmployeeFilters = {}): Promise<Paged<Employee>> {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = params.pageSize ?? 25;
+    const from = (page - 1) * pageSize;
 
-  get(id: string): Promise<Employee | undefined> {
-    return resolve(db.employees.find((e) => e.id === id));
-  },
+    let q = supabase.from('employee_list').select('*', { count: 'exact' });
+    if (params.search) q = q.or(`name.ilike.%${params.search}%,code.ilike.%${params.search}%,email.ilike.%${params.search}%,phone.ilike.%${params.search}%`);
+    if (params.branch) q = q.eq('branch_id', params.branch);
+    if (params.department) q = q.eq('department_id', params.department);
+    if (params.type) q = q.eq('type', params.type);
+    if (params.status) q = q.eq('status', params.status);
+    if (params.shift) q = q.eq('shift', params.shift);
 
-  create(data: Partial<Employee>): Promise<Employee> {
-    const dept = db.departments.find((d) => d.id === data.departmentId) ?? db.departments[0]!;
-    const branch = db.branches.find((b) => b.id === data.branchId) ?? db.branches[0]!;
-    const emp: Employee = {
-      id: nextId('emp'),
-      code: `EMP-${String(db.employees.length + 1).padStart(4, '0')}`,
-      name: data.name ?? 'New Employee',
-      email: data.email ?? '',
-      phone: data.phone ?? '',
-      country: data.country ?? 'Pakistan',
-      type: data.type ?? 'Full-time',
-      departmentId: dept.id,
-      department: dept.name,
-      branchId: branch.id,
-      branch: branch.name,
-      joinDate: data.joinDate ?? new Date().toISOString().slice(0, 10),
-      shift: data.shift ?? 'Morning',
-      status: 'Active',
-      baseSalary: data.baseSalary ?? 0,
-      currency: data.currency ?? 'PKR',
-      docsComplete: false,
-      docsCount: 0,
-      docsRequired: 5,
-      ...data,
+    const sortMap: Record<string, string> = {
+      name: 'name', code: 'code', department: 'department', branch: 'branch', joinDate: 'join_date',
     };
-    db.employees.unshift(emp);
-    return resolve(emp);
+    const dbSort = sortMap[params.sortKey ?? ''] ?? 'name';
+    q = q.order(dbSort, { ascending: params.sortDir !== 'desc' }).range(from, from + pageSize - 1);
+
+    const { data, count, error } = await q;
+    if (error) throw error;
+    return { rows: rowsToCamel<Employee>(data), total: count ?? 0, page, pageSize };
   },
 
-  update(id: string, data: Partial<Employee>): Promise<Employee> {
-    const idx = db.employees.findIndex((e) => e.id === id);
-    if (idx < 0) throw new Error('Employee not found');
-    db.employees[idx] = { ...db.employees[idx]!, ...data };
-    return resolve(db.employees[idx]!);
+  async get(id: string): Promise<Employee | undefined> {
+    const { data, error } = await supabase.from('employee_list').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return rowToCamel<Employee>(data) ?? undefined;
+  },
+
+  async create(data: Partial<Employee>): Promise<Employee> {
+    const { data: row, error } = await supabase.from('employees').insert(toInsert(data)).select('id').single();
+    if (error) throw error;
+    return (await employeesApi.get(row.id))!;
+  },
+
+  async update(id: string, data: Partial<Employee>): Promise<Employee> {
+    const { error } = await supabase.from('employees').update(toInsert(data)).eq('id', id);
+    if (error) throw error;
+    return (await employeesApi.get(id))!;
   },
 };

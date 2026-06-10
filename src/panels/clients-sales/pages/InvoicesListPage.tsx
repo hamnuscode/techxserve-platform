@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   FileDown,
   Trash2,
+  RefreshCw,
 } from 'lucide-react';
 import { PageHeader, KpiStrip, FilterBar, useFormatMoney } from '@/shared';
 import { Button, Select } from '@ds/primitives';
@@ -30,6 +31,10 @@ import { EmptyState, ConfirmDialog, toast } from '@ds/feedback';
 import { DropdownMenu } from '@ds/overlays';
 import { formatDate } from '@/lib/format';
 import { useUrlFilters } from '@/lib/useUrlFilters';
+import { exportToXlsx } from '@/lib/export';
+import { downloadInvoicePdf } from '@/lib/pdf';
+import { invoicesApi } from '@/data/mock-api';
+import { company } from '@/data/fixtures';
 import { useInvoices, useInvoiceMutations } from '../hooks/useInvoices';
 import { RecordPaymentModal } from '../modals/RecordPaymentModal';
 import { routes } from '@/config/routes';
@@ -97,7 +102,7 @@ export function InvoicesListPage() {
             items={[
               { label: 'Record Payment', icon: Banknote, onClick: () => setPayFor(i), disabled: i.status === 'Paid' || i.status === 'Cancelled' },
               { label: 'Edit', onClick: () => navigate(routes.invoiceEdit(i.id)) },
-              { label: 'Download PDF', icon: FileDown, onClick: () => toast.success(`${i.number}.pdf downloaded`) },
+              { label: 'Download PDF', icon: FileDown, onClick: async () => { const full = await invoicesApi.get(i.id); if (full) downloadInvoicePdf(full, company); } },
               'divider',
               { label: 'Delete', danger: true, onClick: () => setConfirmDelete([i.id]) },
             ]}
@@ -116,7 +121,18 @@ export function InvoicesListPage() {
         description="Issue, track, and record payment on every invoice."
         actions={
           <>
-            <Button variant="outline" icon={Download} onClick={() => toast.success('Exported invoices.xlsx')}>Export</Button>
+            <Button variant="outline" icon={Download} onClick={() => {
+              exportToXlsx('invoices', (all?.rows ?? []).map((i) => ({
+                'Invoice #': i.number, Client: i.clientName, 'Issue Date': i.issueDate, 'Due Date': i.dueDate,
+                Amount: i.total, Received: i.received, Outstanding: i.total - i.received, Status: i.status,
+              })));
+              toast.success('Exported invoices.xlsx');
+            }}>Export</Button>
+            <Button variant="outline" icon={RefreshCw} onClick={async () => {
+              const n = await invoicesApi.generateRecurring();
+              await refetch();
+              toast.success(n > 0 ? `Generated ${n} recurring invoice${n > 1 ? 's' : ''}` : 'No auto-invoice contracts due');
+            }}>Generate Recurring</Button>
             <Button icon={Plus} onClick={() => navigate(routes.invoiceNew)}>New Invoice</Button>
           </>
         }

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Download, Users, UserCheck, Plane, FileWarning, Eye, Pencil, MoreHorizontal } from 'lucide-react';
 import { PageHeader, KpiStrip, FilterBar } from '@/shared';
+import { exportToXlsx } from '@/lib/export';
 import { Button, Select } from '@ds/primitives';
 import { KPICard, DataTable, StatusBadge, Avatar, Pagination, type Column, type SortState } from '@ds/data-display';
 import { EmptyState, toast } from '@ds/feedback';
@@ -92,7 +93,13 @@ export function EmployeesListPage() {
         description="Master list of every employee."
         actions={
           <>
-            <Button variant="outline" icon={Download} onClick={() => toast.success('Exported employees.xlsx')}>Export</Button>
+            <Button variant="outline" icon={Download} onClick={() => {
+              exportToXlsx('employees', (data?.rows ?? []).map((e) => ({
+                Code: e.code, Name: e.name, Email: e.email, Phone: e.phone, Department: e.department,
+                Branch: e.branch, Type: e.type, Shift: e.shift, Status: e.status,
+              })));
+              toast.success('Exported employees.xlsx');
+            }}>Export</Button>
             <Button icon={Plus} onClick={() => { setEditing(undefined); setModalOpen(true); }}>Add Employee</Button>
           </>
         }

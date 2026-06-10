@@ -12,6 +12,7 @@ import { useProject, useTasks, useTaskMutations } from '../hooks';
 import { TaskBoard } from '../components/TaskBoard';
 import { TaskDetailModal } from '../modals/TaskDetailModal';
 import { CreateTaskModal } from '../modals/CreateTaskModal';
+import { CreateProjectModal } from '../modals/CreateProjectModal';
 import { routes } from '@/config/routes';
 import type { Task, TaskStatus } from '@/types';
 
@@ -22,6 +23,7 @@ export function ProjectDetailPage() {
   const [tab, setTab] = useState('board');
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const { data: project, isLoading, isError, refetch } = useProject(id);
   const { data: tasks = [] } = useTasks({ project: id });
@@ -72,7 +74,7 @@ export function ProjectDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" icon={Pencil} onClick={() => toast.info('Edit project (stub)')}>Edit Project</Button>
+          <Button variant="outline" icon={Pencil} onClick={() => setEditOpen(true)}>Edit Project</Button>
           <Button icon={Plus} onClick={() => setCreateOpen(true)}>New Task</Button>
           <DropdownMenu trigger={<Button variant="outline" icon={MoreHorizontal} aria-label="More" />} items={[{ label: 'Archive' }, { label: 'Duplicate' }]} />
         </div>
@@ -126,6 +128,7 @@ export function ProjectDetailPage() {
 
       <TaskDetailModal task={openTask} onClose={() => setOpenTask(null)} />
       <CreateTaskModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      {project && <CreateProjectModal open={editOpen} onClose={() => setEditOpen(false)} project={project} />}
     </div>
   );
 }

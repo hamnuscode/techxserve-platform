@@ -6,6 +6,8 @@ import { Button, Select, Input, Card, CardTitle, Toggle } from '@ds/primitives';
 import { KPICard, StatusBadge, Avatar } from '@ds/data-display';
 import { EmptyState, toast } from '@ds/feedback';
 import { useUrlFilters } from '@/lib/useUrlFilters';
+import { downloadPayslipPdf } from '@/lib/pdf';
+import { company } from '@/data/fixtures';
 import { usePayroll, usePayrollMutations, useBranches } from '../hooks';
 import type { Payslip } from '@/types';
 
@@ -114,7 +116,7 @@ export function PayrollPage() {
                         />
                       </td>
                       <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                        <Button size="sm" variant="ghost" icon={FileText} onClick={() => toast.success(`Payslip ${p.employeeCode}.pdf`)}>Payslip</Button>
+                        <Button size="sm" variant="ghost" icon={FileText} onClick={() => { downloadPayslipPdf(p, company); toast.success(`Payslip ${p.employeeCode}.pdf`); }}>Payslip</Button>
                       </td>
                     </tr>
                   ))}

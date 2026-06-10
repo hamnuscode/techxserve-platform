@@ -1,6 +1,9 @@
+import { Navigate } from 'react-router-dom';
 import { LayoutDashboard, CalendarCheck, Plane, Wallet, ListTodo, Clock, CreditCard, FolderArchive, User } from 'lucide-react';
 import { PortalShell, type PortalNavItem } from '@/layouts/PortalShell';
 import { routes } from '@/config/routes';
+import { useAuthStore } from '@/app/stores/auth';
+import { ForcedPasswordReset } from '@/shared';
 import { useMe } from './hooks';
 
 const NAV: PortalNavItem[] = [
@@ -16,7 +19,18 @@ const NAV: PortalNavItem[] = [
 ];
 
 export function EmployeePortalLayout() {
+  const status = useAuthStore((s) => s.status);
+  const portalKind = useAuthStore((s) => s.user?.portalKind);
+  const mustChangePassword = useAuthStore((s) => s.user?.mustChangePassword);
   const { data: me } = useMe();
+
+  if (status === 'loading') return null;
+  if (status === 'anon') return <Navigate to={routes.epLogin} replace />;
+  if (mustChangePassword) return <ForcedPasswordReset />;
+  // A signed-in admin or client landing here goes to their own home.
+  if (portalKind === 'admin') return <Navigate to={routes.dashboard} replace />;
+  if (portalKind === 'client') return <Navigate to={routes.cpDashboard} replace />;
+
   return (
     <PortalShell
       brand="TechxServe"

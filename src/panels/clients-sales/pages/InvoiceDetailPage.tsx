@@ -7,8 +7,10 @@ import { StatusBadge, type Column, DataTable } from '@ds/data-display';
 import { ErrorState, Skeleton, toast } from '@ds/feedback';
 import { DropdownMenu } from '@ds/overlays';
 import { formatDate } from '@/lib/format';
+import { downloadInvoicePdf } from '@/lib/pdf';
 import { useInvoice } from '../hooks/useInvoices';
 import { RecordPaymentModal } from '../modals/RecordPaymentModal';
+import { EmailComposerModal } from '@/shared';
 import { company } from '@/data/fixtures';
 import { routes } from '@/config/routes';
 import type { Payment } from '@/types';
@@ -18,6 +20,7 @@ export function InvoiceDetailPage() {
   const navigate = useNavigate();
   const money = useFormatMoney();
   const [payOpen, setPayOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
   const { data: inv, isLoading, isError, refetch } = useInvoice(id);
 
   if (isLoading) return <Skeleton className="h-96 w-full rounded-xl" />;
@@ -48,8 +51,8 @@ export function InvoiceDetailPage() {
               <Button icon={Banknote} onClick={() => setPayOpen(true)}>Record Payment</Button>
             )}
             <Button variant="outline" icon={Pencil} onClick={() => navigate(routes.invoiceEdit(inv.id))}>Edit</Button>
-            <Button variant="outline" icon={FileDown} onClick={() => toast.success(`${inv.number}.pdf downloaded`)}>PDF</Button>
-            <Button variant="outline" icon={Send} onClick={() => toast.success('Email composer (stub)')}>Email</Button>
+            <Button variant="outline" icon={FileDown} onClick={() => { downloadInvoicePdf(inv, company); toast.success(`${inv.number}.pdf downloaded`); }}>PDF</Button>
+            <Button variant="outline" icon={Send} onClick={() => setEmailOpen(true)}>Email</Button>
             <DropdownMenu
               trigger={<Button variant="outline" icon={MoreHorizontal} aria-label="More" />}
               items={[
@@ -148,6 +151,7 @@ export function InvoiceDetailPage() {
       </div>
 
       <RecordPaymentModal open={payOpen} onClose={() => setPayOpen(false)} invoice={inv} />
+      <EmailComposerModal open={emailOpen} onClose={() => setEmailOpen(false)} defaultSubject={`Invoice ${inv.number} from ${company.name}`} defaultBody={`Dear ${inv.clientName},\n\nPlease find your invoice ${inv.number} attached.\n\nRegards,\n${company.name}`} />
     </div>
   );
 }

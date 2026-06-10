@@ -13,7 +13,8 @@ export function useQuoteMutations() {
     qc.invalidateQueries({ queryKey: ['quotes'] });
     qc.invalidateQueries({ queryKey: ['invoices'] });
   };
+  const create = useMutation({ mutationFn: (data: Partial<Quote>) => quotesApi.create(data), onSuccess: invalidate });
   const setStatus = useMutation({ mutationFn: ({ id, status }: { id: string; status: Quote['status'] }) => quotesApi.setStatus(id, status), onSuccess: invalidate });
   const convert = useMutation({ mutationFn: (id: string) => quotesApi.convert(id), onSuccess: invalidate });
-  return { setStatus, convert };
+  return { create, setStatus, convert };
 }

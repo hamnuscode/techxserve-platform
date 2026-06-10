@@ -3,6 +3,7 @@ export const routes = {
   login: '/login',
   devComponents: '/dev/components',
 
+  companies: '/companies',
   dashboard: '/',
 
   clients: '/clients',

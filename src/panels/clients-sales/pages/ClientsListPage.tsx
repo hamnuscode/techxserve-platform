@@ -8,6 +8,7 @@ import { EmptyState, toast } from '@ds/feedback';
 import { DropdownMenu } from '@ds/overlays';
 import { ConfirmDialog } from '@ds/feedback';
 import { useUrlFilters } from '@/lib/useUrlFilters';
+import { exportToXlsx } from '@/lib/export';
 import { useClients, useClientMutations } from '../hooks/useClients';
 import { ClientFormModal } from '../modals/ClientFormModal';
 import { routes } from '@/config/routes';
@@ -112,7 +113,13 @@ export function ClientsListPage() {
         description="Master list of every client you sell to."
         actions={
           <>
-            <Button variant="outline" icon={Download} onClick={() => toast.success('Exported clients.xlsx')}>
+            <Button variant="outline" icon={Download} onClick={() => {
+              exportToXlsx('clients', (all?.rows ?? []).map((c) => ({
+                Code: c.code, Name: c.name, Type: c.type, Industry: c.industry, Country: c.country,
+                Email: c.email, Phone: c.phone, Outstanding: c.outstanding, 'Active Contracts': c.activeContracts, Status: c.status,
+              })));
+              toast.success('Exported clients.xlsx');
+            }}>
               Export
             </Button>
             <Button icon={Plus} onClick={() => { setEditing(undefined); setModalOpen(true); }}>

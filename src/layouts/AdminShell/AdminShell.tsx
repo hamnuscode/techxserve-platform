@@ -1,7 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useOutlet } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Receipt, CreditCard, ListTodo, UserPlus } from 'lucide-react';
+import { Receipt, CreditCard, ListTodo, UserPlus, Users2, Briefcase, FileText, FolderKanban, Wallet } from 'lucide-react';
+import { searchApi } from '@/data/mock-api';
 import { SideBar } from './SideBar';
 import { TopBar } from './TopBar';
 import { NotificationsPanel } from './NotificationsPanel';
@@ -10,6 +12,7 @@ import { CommandMenu, type CommandGroup } from '@ds/overlays';
 import { routeTransition } from '@ds/motion';
 import { useUIStore } from '@/app/stores/ui';
 import { useAuthStore } from '@/app/stores/auth';
+import { ForcedPasswordReset } from '@/shared';
 import { navGroups } from '@/config/nav';
 import { isPhaseActive } from '@/config/phases';
 import { routes } from '@/config/routes';
@@ -21,7 +24,18 @@ export function AdminShell() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const commandOpen = useUIStore((s) => s.commandOpen);
   const setCommandOpen = useUIStore((s) => s.setCommandOpen);
-  const authenticated = useAuthStore((s) => s.authenticated);
+  const [searchQuery, setSearchQuery] = useState('');
+  const { data: searchResults = [] } = useQuery({
+    queryKey: ['global-search', searchQuery],
+    queryFn: () => searchApi.global(searchQuery),
+    enabled: searchQuery.trim().length >= 2,
+  });
+  const RESULT_ICON = { Client: Users2, Employee: Briefcase, Invoice: FileText, Project: FolderKanban, Expense: Wallet };
+  const status = useAuthStore((s) => s.status);
+  const portalKind = useAuthStore((s) => s.user?.portalKind);
+  const role = useAuthStore((s) => s.user?.role);
+  const viewAsCompany = useAuthStore((s) => s.user?.viewAsCompany);
+  const mustChangePassword = useAuthStore((s) => s.user?.mustChangePassword);
 
   // ⌘K / Ctrl+K toggles the command palette anywhere in the shell.
   useEffect(() => {
@@ -62,7 +76,21 @@ export function AdminShell() {
     [navigate],
   );
 
-  if (!authenticated) return <Navigate to={routes.login} replace />;
+  // Wait for the initial session check so we don't flash the login screen.
+  if (status === 'loading') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-app">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-line border-t-brand-600" />
+      </div>
+    );
+  }
+  if (status === 'anon') return <Navigate to={routes.login} replace />;
+  if (mustChangePassword) return <ForcedPasswordReset />;
+  // The Super Super Admin must pick a company before the admin shell renders.
+  if (role === 'Super Super Admin' && !viewAsCompany) return <Navigate to={routes.companies} replace />;
+  // Portal users never see the admin shell — send them to their portal.
+  if (portalKind === 'client') return <Navigate to={routes.cpDashboard} replace />;
+  if (portalKind === 'employee') return <Navigate to={routes.epDashboard} replace />;
 
   return (
     <div className="min-h-screen bg-app">
@@ -80,7 +108,28 @@ export function AdminShell() {
         </div>
       </main>
 
-      <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} groups={commandGroups} />
+      <CommandMenu
+        open={commandOpen}
+        onClose={() => setCommandOpen(false)}
+        onQueryChange={setSearchQuery}
+        groups={
+          searchResults.length > 0
+            ? [
+                {
+                  heading: 'Search results',
+                  items: searchResults.map((r) => ({
+                    id: r.id + r.type,
+                    label: r.label,
+                    keywords: `${r.type} ${r.sub} ${r.label}`,
+                    icon: RESULT_ICON[r.type],
+                    onSelect: () => navigate(r.href),
+                  })),
+                },
+                ...commandGroups,
+              ]
+            : commandGroups
+        }
+      />
       <NotificationsPanel />
       <AIAssistant />
     </div>

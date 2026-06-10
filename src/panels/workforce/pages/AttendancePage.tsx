@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { CheckCircle2, XCircle, Plane, CircleHelp, Download, CheckCheck, MapPin, Camera, Plug } from 'lucide-react';
 import { PageHeader, KpiStrip, FilterBar } from '@/shared';
+import { exportToXlsx } from '@/lib/export';
 import { Button, Select, Input, SegmentedControl } from '@ds/primitives';
 import { KPICard, Avatar } from '@ds/data-display';
 import { EmptyState, toast } from '@ds/feedback';
@@ -60,7 +61,12 @@ export function AttendancePage() {
               onChange={(v) => setMode(v as 'manual' | 'integrated')}
               segments={[{ value: 'manual', label: 'Manual' }, { value: 'integrated', label: 'Integrated' }]}
             />
-            <Button variant="outline" icon={Download} onClick={() => toast.success('Exported attendance.xlsx')}>Export</Button>
+            <Button variant="outline" icon={Download} onClick={() => {
+              exportToXlsx('attendance', rows.map((r) => ({
+                Code: r.employee.code, Name: r.employee.name, Branch: r.employee.branch, Shift: r.employee.shift, Status: r.status,
+              })));
+              toast.success('Exported attendance.xlsx');
+            }}>Export</Button>
             {mode === 'manual' && (
               <Button
                 icon={CheckCheck}

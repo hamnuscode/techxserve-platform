@@ -7,6 +7,7 @@ import { Button, Card, CardTitle } from '@ds/primitives';
 import { StatusBadge } from '@ds/data-display';
 import { ErrorState, Skeleton, toast } from '@ds/feedback';
 import { formatDate } from '@/lib/format';
+import { downloadInvoicePdf } from '@/lib/pdf';
 import { invoicesApi } from '@/data/mock-api';
 import { qk } from '@/data/query-keys';
 import { company } from '@/data/fixtures';
@@ -29,7 +30,7 @@ export function ClientInvoiceDetail() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-content">{inv.number}<StatusBadge status={inv.status} /></h1>
         <div className="flex gap-2">
-          <Button variant="outline" icon={Download} onClick={() => toast.success(`${inv.number}.pdf downloaded`)}>Download PDF</Button>
+          <Button variant="outline" icon={Download} onClick={() => { downloadInvoicePdf(inv, company); toast.success(`${inv.number}.pdf downloaded`); }}>Download PDF</Button>
           {inv.status !== 'Paid' && <Button icon={CreditCard} onClick={() => setPayOpen(true)}>Pay Now</Button>}
         </div>
       </div>

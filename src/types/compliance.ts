@@ -29,4 +29,8 @@ export interface DocFile {
   sizeKb: number;
   uploadedBy: string;
   uploadedAt: ISODate;
+  // Google Drive backing (set when uploaded via the Drive edge function).
+  driveFileId?: string;
+  driveViewUrl?: string;
+  mimeType?: string;
 }

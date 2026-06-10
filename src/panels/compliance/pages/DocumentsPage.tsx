@@ -1,14 +1,14 @@
-import { useEffect, useState } from 'react';
-import { FolderPlus, Upload, FileText, Image as ImageIcon, Sheet, File, Folder, MoreHorizontal, Download, Pencil, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { FolderPlus, Upload, FileText, Image as ImageIcon, Sheet, File, Folder, MoreHorizontal, Download, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/shared';
 import { Button } from '@ds/primitives';
-import { EmptyState, toast } from '@ds/feedback';
+import { EmptyState, ConfirmDialog, toast } from '@ds/feedback';
 import { DropdownMenu } from '@ds/overlays';
 import { Stagger } from '@ds/motion';
 import { cn } from '@/lib/cn';
 import { formatDate } from '@/lib/format';
-import { useDocFolders, useDocFiles } from '../hooks';
-import type { DocFile } from '@/types';
+import { useDocFolders, useDocFiles, useDocMutations } from '../hooks';
+import type { DocFile, DocFolder } from '@/types';
 
 const FILE_ICON = { pdf: FileText, image: ImageIcon, sheet: Sheet, doc: FileText, other: File };
 
@@ -21,13 +21,44 @@ export function DocumentsPage() {
   const [active, setActive] = useState('');
   useEffect(() => { if (!active && folders[0]) setActive(folders[0].id); }, [folders, active]);
   const { data: files = [], isLoading } = useDocFiles(active);
+  const { createFolder, upload, removeFile } = useDocMutations();
+
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [confirmFile, setConfirmFile] = useState<DocFile | null>(null);
+  const activeFolder = folders.find((f) => f.id === active) as DocFolder | undefined;
+
+  const onPickFiles = async (list: FileList | null) => {
+    if (!list?.length || !activeFolder) return;
+    setUploading(true);
+    try {
+      for (const file of Array.from(list)) {
+        await upload.mutateAsync({ folder: activeFolder, file });
+      }
+      toast.success(list.length > 1 ? `${list.length} files uploaded` : 'File uploaded');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInput.current) fileInput.current.value = '';
+    }
+  };
+
+  const onNewFolder = async () => {
+    const name = window.prompt('New folder name');
+    if (!name?.trim()) return;
+    const created = await createFolder.mutateAsync({ name: name.trim() });
+    setActive(created.id);
+    toast.success('Folder created');
+  };
 
   return (
     <div>
+      <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => onPickFiles(e.target.files)} />
       <PageHeader
         title="Documents"
         description="Central document vault organised by category."
-        actions={<Button icon={Upload} onClick={() => toast.success('File uploaded')}>Upload</Button>}
+        actions={<Button icon={Upload} loading={uploading} disabled={!activeFolder} onClick={() => fileInput.current?.click()}>Upload</Button>}
       />
 
       <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
@@ -35,7 +66,7 @@ export function DocumentsPage() {
         <aside className="space-y-1">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-2xs font-semibold uppercase tracking-wide text-content-subtle">Folders</span>
-            <button onClick={() => toast.info('New folder (stub)')} className="text-content-subtle hover:text-content" aria-label="New folder"><FolderPlus size={16} /></button>
+            <button onClick={onNewFolder} className="text-content-subtle hover:text-content" aria-label="New folder"><FolderPlus size={16} /></button>
           </div>
           {folders.map((f) => (
             <button
@@ -57,12 +88,15 @@ export function DocumentsPage() {
         <div>
           {/* Drag-drop upload zone */}
           <button
-            onClick={() => toast.success('File uploaded')}
-            className="mb-4 flex w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line-strong bg-dotgrid py-8 text-center transition-colors hover:border-brand-400 hover:bg-brand-50/30"
+            onClick={() => fileInput.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); onPickFiles(e.dataTransfer.files); }}
+            disabled={!activeFolder || uploading}
+            className="mb-4 flex w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line-strong bg-dotgrid py-8 text-center transition-colors hover:border-brand-400 hover:bg-brand-50/30 disabled:opacity-60"
           >
             <Upload size={22} className="text-brand-500" />
-            <span className="text-sm font-medium text-content">Drop files here or click to upload</span>
-            <span className="text-xs text-content-subtle">PDF, images, spreadsheets up to 25 MB</span>
+            <span className="text-sm font-medium text-content">{uploading ? 'Uploading…' : activeFolder ? `Drop files here or click to upload to “${activeFolder.name}”` : 'Create or select a folder first'}</span>
+            <span className="text-xs text-content-subtle">Stored securely in your Google Drive</span>
           </button>
 
           {isLoading ? null : files.length === 0 ? (
@@ -78,10 +112,9 @@ export function DocumentsPage() {
                         <DropdownMenu
                           trigger={<Button size="sm" variant="ghost" icon={MoreHorizontal} aria-label="File actions" />}
                           items={[
-                            { label: 'Download', icon: Download, onClick: () => toast.success('Downloaded') },
-                            { label: 'Rename', icon: Pencil },
+                            { label: 'Open / Download', icon: Download, onClick: () => file.driveViewUrl ? window.open(file.driveViewUrl, '_blank', 'noopener') : toast.error('No file link') },
                             'divider',
-                            { label: 'Delete', icon: Trash2, danger: true },
+                            { label: 'Delete', icon: Trash2, danger: true, onClick: () => setConfirmFile(file) },
                           ]}
                         />
                       </div>
@@ -99,6 +132,16 @@ export function DocumentsPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!confirmFile}
+        onClose={() => setConfirmFile(null)}
+        onConfirm={async () => { if (confirmFile) { await removeFile.mutateAsync(confirmFile); toast.success('File deleted'); } setConfirmFile(null); }}
+        title="Delete file?"
+        message={`“${confirmFile?.name}” will be permanently removed from Google Drive.`}
+        confirmLabel="Delete"
+        tone="danger"
+      />
     </div>
   );
 }

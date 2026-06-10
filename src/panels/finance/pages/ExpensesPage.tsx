@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Plus, Download, Users, CreditCard, HandCoins } from 'lucide-react';
 import { PageHeader, KpiStrip, FilterBar, useFormatMoney } from '@/shared';
+import { exportToXlsx } from '@/lib/export';
 import { Button, Tabs, Card, CardTitle, Select, Input, Textarea, FormField, type TabItem } from '@ds/primitives';
 import { KPICard, DataTable, StatusBadge, Pagination, type Column } from '@ds/data-display';
 import { DonutChart } from '@ds/charts';
@@ -10,8 +11,26 @@ import { EmptyState, Modal, toast } from '@ds/feedback';
 import { ProgressBar } from '@ds/data-display';
 import { formatDate } from '@/lib/format';
 import { useUrlFilters } from '@/lib/useUrlFilters';
-import { useExpenses, useExpenseBreakdown, useAddExpense } from '../hooks';
+import { useExpenses, useExpenseBreakdown, useAddExpense, useVendors, useAddVendor } from '../hooks';
 import type { Expense } from '@/types';
+
+function VendorsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { data: vendors = [] } = useVendors();
+  const addVendor = useAddVendor();
+  const [name, setName] = useState('');
+  return (
+    <Modal open={open} onClose={onClose} title="Vendors" size="sm">
+      <div className="divide-y divide-line">
+        {vendors.length === 0 ? <p className="py-4 text-center text-sm text-content-subtle">No vendors yet.</p>
+          : vendors.map((v) => <div key={v.id} className="py-2.5 text-sm font-medium text-content">{v.name}</div>)}
+      </div>
+      <div className="mt-4 flex gap-2 border-t border-line pt-4">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Vendor name" />
+        <Button loading={addVendor.isPending} onClick={async () => { if (!name.trim()) return; await addVendor.mutateAsync(name.trim()); setName(''); toast.success('Vendor added'); }}>Add</Button>
+      </div>
+    </Modal>
+  );
+}
 
 const CATEGORIES = ['Office Rent', 'Utilities', 'Salaries Sub', 'Marketing', 'Travel', 'Software', 'Equipment', 'Maintenance'];
 const PAGE_SIZE = 25;
@@ -50,6 +69,7 @@ export function ExpensesPage() {
   const [params, setParams] = useSearchParams();
   const [subtab, setSubtab] = useState('expenses');
   const [addOpen, setAddOpen] = useState(params.get('new') === '1');
+  const [vendorsOpen, setVendorsOpen] = useState(false);
   const { values, set, reset, activeCount } = useUrlFilters({ search: '', category: '', mode: '', page: '1' });
 
   const page = Number(values.page) || 1;
@@ -87,8 +107,14 @@ export function ExpensesPage() {
         description="All expenses and vendor advances."
         actions={
           <>
-            <Button variant="outline" icon={Users} onClick={() => toast.info('Vendors list (stub)')}>Manage Vendors</Button>
-            <Button variant="outline" icon={Download} onClick={() => toast.success('Exported expenses.xlsx')}>Export</Button>
+            <Button variant="outline" icon={Users} onClick={() => setVendorsOpen(true)}>Manage Vendors</Button>
+            <Button variant="outline" icon={Download} onClick={() => {
+              exportToXlsx('expenses', (data?.rows ?? []).map((e) => ({
+                Date: e.date, Category: e.category, Client: e.clientName ?? '', Description: e.description,
+                Amount: e.amount, Currency: e.currency, Mode: e.mode, Vendor: e.vendor ?? '',
+              })));
+              toast.success('Exported expenses.xlsx');
+            }}>Export</Button>
             <Button icon={Plus} onClick={() => setAddOpen(true)}>Add Expense</Button>
           </>
         }
@@ -97,7 +123,7 @@ export function ExpensesPage() {
       <Tabs items={tabs} value={subtab} onChange={setSubtab} className="mb-5" />
 
       {subtab === 'advances' ? (
-        <EmptyState icon={HandCoins} title="Vendor advances" description="Advances paid to vendors will appear here. Manage vendors to record an advance." action={<Button variant="outline" icon={Users} onClick={() => toast.info('Vendors (stub)')}>Manage Vendors</Button>} />
+        <EmptyState icon={HandCoins} title="Vendor advances" description="Advances paid to vendors will appear here. Manage vendors to record an advance." action={<Button variant="outline" icon={Users} onClick={() => setVendorsOpen(true)}>Manage Vendors</Button>} />
       ) : (
         <>
           <KpiStrip cols={3}>
@@ -147,6 +173,7 @@ export function ExpensesPage() {
       )}
 
       <AddExpenseModal open={addOpen} onClose={closeAdd} />
+      <VendorsModal open={vendorsOpen} onClose={() => setVendorsOpen(false)} />
     </div>
   );
 }

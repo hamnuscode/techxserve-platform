@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Plus, Banknote, Landmark, Send, Download, Coins, Wallet, ArrowLeftRight } from 'lucide-react';
 import { PageHeader, KpiStrip, useFormatMoney } from '@/shared';
+import { exportToXlsx } from '@/lib/export';
 import { Button, Tabs, Input, Select, FormField, type TabItem } from '@ds/primitives';
 import { KPICard, DataTable, StatusBadge, type Column } from '@ds/data-display';
 import { EmptyState, Modal, toast } from '@ds/feedback';
 import { formatDate } from '@/lib/format';
-import { useBanks, useCheques, useReceivables, useVendors, useAddBank } from '../hooks';
+import { useBanks, useCheques, useReceivables, useVendors, useAddBank, useWireTransfer, useTransactions } from '../hooks';
 import { routes } from '@/config/routes';
 import type { BankAccount, Cheque, Vendor } from '@/types';
 import type { Receivable } from '@/data/mock-api';
@@ -40,11 +41,69 @@ function AddBankModal({ open, onClose }: { open: boolean; onClose: () => void })
   );
 }
 
+function WireTransferModal({ open, onClose, banks }: { open: boolean; onClose: () => void; banks: BankAccount[] }) {
+  const wire = useWireTransfer();
+  const [fromBankId, setFrom] = useState('');
+  const [toBankId, setTo] = useState('');
+  const [amount, setAmount] = useState('');
+  const [reference, setRef] = useState('');
+  const submit = async () => {
+    if (!fromBankId || !toBankId || fromBankId === toBankId || !amount) return toast.error('Pick two different accounts and an amount.');
+    await wire.mutateAsync({ fromBankId, toBankId, amount: Number(amount), reference });
+    toast.success('Wire transfer recorded');
+    setAmount(''); setRef('');
+    onClose();
+  };
+  const opts = banks.map((b) => ({ value: b.id, label: `${b.name} (${b.type})` }));
+  return (
+    <Modal open={open} onClose={onClose} title="Wire Transfer" size="sm"
+      footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button loading={wire.isPending} onClick={submit}>Transfer</Button></>}>
+      <div className="space-y-4">
+        <FormField label="From account" required><Select value={fromBankId} onChange={(e) => setFrom(e.target.value)} options={[{ value: '', label: 'Select…' }, ...opts]} /></FormField>
+        <FormField label="To account" required><Select value={toBankId} onChange={(e) => setTo(e.target.value)} options={[{ value: '', label: 'Select…' }, ...opts]} /></FormField>
+        <FormField label="Amount (PKR)" required><Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} /></FormField>
+        <FormField label="Reference"><Input value={reference} onChange={(e) => setRef(e.target.value)} placeholder="Optional note" /></FormField>
+      </div>
+    </Modal>
+  );
+}
+
+function TransactionLogModal({ open, onClose, banks }: { open: boolean; onClose: () => void; banks: BankAccount[] }) {
+  const money = useFormatMoney();
+  const [bankId, setBankId] = useState('');
+  const { data: txns = [] } = useTransactions(bankId);
+  return (
+    <Modal open={open} onClose={onClose} title="Transaction Log" size="lg">
+      <FormField label="Account"><Select value={bankId} onChange={(e) => setBankId(e.target.value)} options={[{ value: '', label: 'Select an account…' }, ...banks.map((b) => ({ value: b.id, label: b.name }))]} /></FormField>
+      <div className="mt-4 max-h-80 overflow-y-auto">
+        {!bankId ? <p className="py-6 text-center text-sm text-content-subtle">Pick an account to see its transactions.</p>
+          : txns.length === 0 ? <p className="py-6 text-center text-sm text-content-subtle">No transactions yet.</p>
+          : (
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-line text-left text-2xs uppercase text-content-subtle"><th className="py-2">Date</th><th>Description</th><th>Type</th><th className="text-right">Amount</th></tr></thead>
+            <tbody>
+              {txns.map((t) => (
+                <tr key={t.id} className="border-b border-line last:border-0">
+                  <td className="py-2">{formatDate(t.date)}</td><td>{t.description}</td>
+                  <td><StatusBadge status={t.type} size="sm" tone={t.type === 'Credit' ? 'success' : 'danger'} dot={false} /></td>
+                  <td className="nums text-right font-medium">{money(t.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 export function BanksLedgersPage() {
   const navigate = useNavigate();
   const money = useFormatMoney();
   const [tab, setTab] = useState('banks');
   const [addOpen, setAddOpen] = useState(false);
+  const [wireOpen, setWireOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   const { data: banks = [], isLoading } = useBanks();
   const { data: cheques = [] } = useCheques();
   const { data: receivables = [] } = useReceivables();
@@ -106,8 +165,14 @@ export function BanksLedgersPage() {
         description="Bank accounts, cheques, receivables and payables."
         actions={
           <>
-            <Button variant="outline" icon={ArrowLeftRight} onClick={() => toast.info('Wire Transfer modal (stub)')}>Wire Transfer</Button>
-            <Button variant="outline" icon={Download} onClick={() => toast.success('Exported to Excel')}>Export</Button>
+            <Button variant="outline" icon={ArrowLeftRight} onClick={() => setWireOpen(true)}>Wire Transfer</Button>
+            <Button variant="outline" icon={Download} onClick={() => {
+              exportToXlsx('bank-accounts', banks.map((b) => ({
+                Name: b.name, 'Account #': b.accountNumber, IBAN: b.iban ?? '', Type: b.type,
+                Owner: b.owner, Balance: b.balance, 'Cheque Balance': b.chequeBalance, Currency: b.currency,
+              })));
+              toast.success('Exported to Excel');
+            }}>Export</Button>
             <Button icon={Plus} onClick={() => setAddOpen(true)}>Add Bank Account</Button>
           </>
         }
@@ -128,7 +193,7 @@ export function BanksLedgersPage() {
           <div>
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-content">Cheques</h3>
-              <Button size="sm" variant="ghost" icon={Banknote} onClick={() => toast.info('Transaction log (stub)')}>Transactions</Button>
+              <Button size="sm" variant="ghost" icon={Banknote} onClick={() => setLogOpen(true)}>Transactions</Button>
             </div>
             <DataTable data={cheques} columns={chequeCols} rowKey={(c) => c.id} empty={<EmptyState icon={Banknote} title="No cheques" size="sm" description="Cheque records will appear here." />} />
           </div>
@@ -144,6 +209,8 @@ export function BanksLedgersPage() {
       )}
 
       <AddBankModal open={addOpen} onClose={() => setAddOpen(false)} />
+      <WireTransferModal open={wireOpen} onClose={() => setWireOpen(false)} banks={banks} />
+      <TransactionLogModal open={logOpen} onClose={() => setLogOpen(false)} banks={banks} />
     </div>
   );
 }

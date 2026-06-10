@@ -1,6 +1,7 @@
 import type { Contract, Paged, Project, Task } from '@/types';
-import { db, nextId } from './db';
-import { paginate, resolve, sortRows, textMatch, type ListParams } from './transport';
+import { supabase } from '@/lib/supabase';
+import { rowToCamel, rowsToCamel, toSnake } from '@/lib/case';
+import type { ListParams } from './transport';
 
 export interface ContractFilters extends ListParams {
   type?: string;
@@ -8,53 +9,54 @@ export interface ContractFilters extends ListParams {
 }
 
 export const contractsApi = {
-  list(params: ContractFilters = {}): Promise<Paged<Contract>> {
-    let rows = db.contracts.filter(
-      (c) =>
-        textMatch([c.code, c.clientName], params.search) &&
-        (!params.type || c.type === params.type) &&
-        (!params.status || c.status === params.status),
-    );
-    rows = sortRows(rows, params, {
-      code: (c) => c.code,
-      client: (c) => c.clientName,
-      endDate: (c) => c.endDate,
-      value: (c) => c.value,
-    });
-    return resolve(paginate(rows, params));
+  async list(params: ContractFilters = {}): Promise<Paged<Contract>> {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = params.pageSize ?? 25;
+    const from = (page - 1) * pageSize;
+
+    let q = supabase.from('contract_list').select('*', { count: 'exact' });
+    if (params.search) q = q.or(`code.ilike.%${params.search}%,client_name.ilike.%${params.search}%`);
+    if (params.type) q = q.eq('type', params.type);
+    if (params.status) q = q.eq('status', params.status);
+
+    const sortMap: Record<string, string> = { code: 'code', client: 'client_name', endDate: 'end_date', value: 'value' };
+    const dbSort = sortMap[params.sortKey ?? ''] ?? 'code';
+    q = q.order(dbSort, { ascending: params.sortDir !== 'desc' }).range(from, from + pageSize - 1);
+
+    const { data, count, error } = await q;
+    if (error) throw error;
+    return { rows: rowsToCamel<Contract>(data), total: count ?? 0, page, pageSize };
   },
 
-  create(data: Partial<Contract>): Promise<Contract> {
-    const client = db.clients.find((c) => c.id === data.clientId);
-    const contract: Contract = {
-      id: nextId('con'),
-      code: `CON-${String(db.contracts.length + 1).padStart(4, '0')}`,
-      clientId: data.clientId ?? '',
-      clientName: client?.name ?? data.clientName ?? '',
+  async create(data: Partial<Contract>): Promise<Contract> {
+    const insert = {
+      client_id: data.clientId,
       type: data.type ?? 'Service Agreement',
-      startDate: data.startDate ?? new Date().toISOString().slice(0, 10),
-      endDate: data.endDate ?? new Date().toISOString().slice(0, 10),
+      start_date: data.startDate,
+      end_date: data.endDate,
       value: data.value ?? 0,
       currency: data.currency ?? 'PKR',
-      monthlyValue: data.type === 'Retainer' ? Math.round((data.value ?? 0) / 12) : undefined,
-      autoInvoice: data.autoInvoice ?? false,
-      status: 'Active',
+      monthly_value: data.type === 'Retainer' ? data.monthlyValue ?? Math.round((data.value ?? 0) / 12) : null,
+      auto_invoice: data.autoInvoice ?? false,
+      status: data.status ?? 'Active',
     };
-    db.contracts.unshift(contract);
-    return resolve(contract);
+    const { data: row, error } = await supabase.from('contracts').insert(insert).select('id').single();
+    if (error) throw error;
+    const { data: full } = await supabase.from('contract_list').select('*').eq('id', row.id).single();
+    return rowToCamel<Contract>(full)!;
   },
 
-  update(id: string, data: Partial<Contract>): Promise<Contract> {
-    const idx = db.contracts.findIndex((c) => c.id === id);
-    if (idx < 0) throw new Error('Contract not found');
-    db.contracts[idx] = { ...db.contracts[idx]!, ...data };
-    return resolve(db.contracts[idx]!);
+  async update(id: string, data: Partial<Contract>): Promise<Contract> {
+    const { id: _i, code: _c, clientName: _cn, ...rest } = data;
+    const { error } = await supabase.from('contracts').update(toSnake(rest)).eq('id', id);
+    if (error) throw error;
+    const { data: full } = await supabase.from('contract_list').select('*').eq('id', id).single();
+    return rowToCamel<Contract>(full)!;
   },
 
   renew(id: string, endDate: string): Promise<Contract> {
     return contractsApi.update(id, { status: 'Active', endDate });
   },
-
   cancel(id: string): Promise<Contract> {
     return contractsApi.update(id, { status: 'Cancelled' });
   },
@@ -67,50 +69,54 @@ export interface ProjectFilters extends ListParams {
 }
 
 export const projectsApi = {
-  list(params: ProjectFilters = {}): Promise<Paged<Project>> {
-    let rows = db.projects.filter(
-      (p) =>
-        textMatch([p.name, p.code, p.clientName, p.managerName], params.search) &&
-        (!params.client || p.clientId === params.client) &&
-        (!params.status || p.status === params.status) &&
-        (!params.billingModel || p.billingModel === params.billingModel),
-    );
-    rows = sortRows(rows, params, {
-      name: (p) => p.name,
-      code: (p) => p.code,
-      endDate: (p) => p.endDate,
-      spent: (p) => p.spent,
-    });
-    return resolve(paginate(rows, params));
+  async list(params: ProjectFilters = {}): Promise<Paged<Project>> {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = params.pageSize ?? 25;
+    const from = (page - 1) * pageSize;
+
+    let q = supabase.from('project_list').select('*', { count: 'exact' });
+    if (params.search) q = q.or(`name.ilike.%${params.search}%,code.ilike.%${params.search}%,client_name.ilike.%${params.search}%,manager_name.ilike.%${params.search}%`);
+    if (params.client) q = q.eq('client_id', params.client);
+    if (params.status) q = q.eq('status', params.status);
+    if (params.billingModel) q = q.eq('billing_model', params.billingModel);
+
+    const sortMap: Record<string, string> = { name: 'name', code: 'code', endDate: 'end_date', spent: 'spent' };
+    const dbSort = sortMap[params.sortKey ?? ''] ?? 'name';
+    q = q.order(dbSort, { ascending: params.sortDir !== 'desc' }).range(from, from + pageSize - 1);
+
+    const { data, count, error } = await q;
+    if (error) throw error;
+    return { rows: rowsToCamel<Project>(data), total: count ?? 0, page, pageSize };
   },
-  get(id: string): Promise<Project | undefined> {
-    return resolve(db.projects.find((p) => p.id === id));
+
+  async get(id: string): Promise<Project | undefined> {
+    const { data, error } = await supabase.from('project_list').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return rowToCamel<Project>(data) ?? undefined;
   },
-  create(data: Partial<Project>): Promise<Project> {
-    const client = db.clients.find((c) => c.id === data.clientId);
-    const project: Project = {
-      id: nextId('prj'),
-      code: `PRJ-${String(db.projects.length + 1).padStart(4, '0')}`,
-      name: data.name ?? 'New Project',
-      clientId: data.clientId ?? '',
-      clientName: client?.name ?? data.clientName ?? '',
-      managerName: data.managerName ?? 'Faisal Malik',
+
+  async create(data: Partial<Project>): Promise<Project> {
+    const insert = {
+      name: data.name,
+      client_id: data.clientId ?? null,
+      manager_name: data.managerName,
       status: data.status ?? 'Lead',
-      billingModel: data.billingModel ?? 'Fixed',
+      billing_model: data.billingModel ?? 'Fixed',
       budget: data.budget ?? null,
-      spent: 0,
       currency: data.currency ?? 'PKR',
-      startDate: data.startDate ?? new Date().toISOString().slice(0, 10),
-      endDate: data.endDate ?? new Date().toISOString().slice(0, 10),
+      start_date: data.startDate,
+      end_date: data.endDate,
     };
-    db.projects.unshift(project);
-    return resolve(project);
+    const { data: row, error } = await supabase.from('projects').insert(insert).select('id').single();
+    if (error) throw error;
+    return (await projectsApi.get(row.id))!;
   },
-  update(id: string, data: Partial<Project>): Promise<Project> {
-    const idx = db.projects.findIndex((p) => p.id === id);
-    if (idx < 0) throw new Error('Project not found');
-    db.projects[idx] = { ...db.projects[idx]!, ...data };
-    return resolve(db.projects[idx]!);
+
+  async update(id: string, data: Partial<Project>): Promise<Project> {
+    const { id: _i, code: _c, clientName: _cn, ...rest } = data;
+    const { error } = await supabase.from('projects').update(toSnake(rest)).eq('id', id);
+    if (error) throw error;
+    return (await projectsApi.get(id))!;
   },
 };
 
@@ -123,46 +129,46 @@ export interface TaskFilters extends ListParams {
 }
 
 export const tasksApi = {
-  list(params: TaskFilters = {}): Promise<Task[]> {
-    const rows = db.tasks.filter(
-      (t) =>
-        textMatch([t.title, t.projectName ?? undefined], params.search) &&
-        (!params.assignee || t.assignees.includes(params.assignee)) &&
-        (!params.priority || t.priority === params.priority) &&
-        (!params.project || t.projectId === params.project) &&
-        (!params.label || t.labels.includes(params.label)) &&
-        (!params.status || t.status === params.status),
-    );
-    return resolve(rows);
+  async list(params: TaskFilters = {}): Promise<Task[]> {
+    let q = supabase.from('task_list').select('*');
+    if (params.search) q = q.or(`title.ilike.%${params.search}%,project_name.ilike.%${params.search}%`);
+    if (params.assignee) q = q.contains('assignees', [params.assignee]);
+    if (params.priority) q = q.eq('priority', params.priority);
+    if (params.project) q = q.eq('project_id', params.project);
+    if (params.label) q = q.contains('labels', [params.label]);
+    if (params.status) q = q.eq('status', params.status);
+    const { data, error } = await q.order('position');
+    if (error) throw error;
+    return rowsToCamel<Task>(data);
   },
-  get(id: string): Promise<Task | undefined> {
-    return resolve(db.tasks.find((t) => t.id === id));
+
+  async get(id: string): Promise<Task | undefined> {
+    const { data, error } = await supabase.from('task_list').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return rowToCamel<Task>(data) ?? undefined;
   },
-  create(data: Partial<Task>): Promise<Task> {
-    const task: Task = {
-      id: nextId('task'),
+
+  async create(data: Partial<Task>): Promise<Task> {
+    const insert = {
       title: data.title ?? 'New Task',
-      projectId: data.projectId ?? null,
-      projectName: data.projectName ?? null,
+      description: data.description,
+      project_id: data.projectId ?? null,
       assignees: data.assignees ?? [],
       priority: data.priority ?? 'Medium',
       status: data.status ?? 'To Do',
-      dueDate: data.dueDate ?? null,
+      due_date: data.dueDate ?? null,
       labels: data.labels ?? [],
-      checklist: [],
-      comments: [],
-      hoursLogged: 0,
-      createdBy: 'Faisal Malik',
-      createdAt: new Date().toISOString().slice(0, 10),
-      ...data,
+      created_by: data.createdBy,
     };
-    db.tasks.unshift(task);
-    return resolve(task);
+    const { data: row, error } = await supabase.from('tasks').insert(insert).select('id').single();
+    if (error) throw error;
+    return (await tasksApi.get(row.id))!;
   },
-  update(id: string, data: Partial<Task>): Promise<Task> {
-    const idx = db.tasks.findIndex((t) => t.id === id);
-    if (idx < 0) throw new Error('Task not found');
-    db.tasks[idx] = { ...db.tasks[idx]!, ...data };
-    return resolve(db.tasks[idx]!);
+
+  async update(id: string, data: Partial<Task>): Promise<Task> {
+    const { id: _i, projectName: _pn, createdAt: _ca, ...rest } = data;
+    const { error } = await supabase.from('tasks').update(toSnake(rest)).eq('id', id);
+    if (error) throw error;
+    return (await tasksApi.get(id))!;
   },
 };

@@ -24,10 +24,12 @@ interface CommandMenuProps {
   onClose: () => void;
   groups: CommandGroup[];
   placeholder?: string;
+  /** Notified as the user types, so the shell can fetch live record results. */
+  onQueryChange?: (q: string) => void;
 }
 
 /** Command / quick-create palette (brief). Cmd+K wired by the shell. */
-export function CommandMenu({ open, onClose, groups, placeholder = 'Search or jump to…' }: CommandMenuProps) {
+export function CommandMenu({ open, onClose, groups, placeholder = 'Search or jump to…', onQueryChange }: CommandMenuProps) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -112,7 +114,7 @@ export function CommandMenu({ open, onClose, groups, placeholder = 'Search or ju
               <input
                 ref={inputRef}
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => { setQuery(e.target.value); onQueryChange?.(e.target.value); }}
                 placeholder={placeholder}
                 className="h-14 w-full bg-transparent text-sm text-content placeholder:text-content-subtle focus:outline-none"
               />

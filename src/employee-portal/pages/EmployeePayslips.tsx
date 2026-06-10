@@ -7,6 +7,7 @@ import { EmptyState, Modal, toast } from '@ds/feedback';
 import { Stagger } from '@ds/motion';
 import { useMe, useMyPayslips } from '../hooks';
 import { company } from '@/data/fixtures';
+import { downloadPayslipPdf } from '@/lib/pdf';
 import type { Payslip } from '@/types';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June'];
@@ -39,7 +40,7 @@ export function EmployeePayslips() {
                 </div>
                 <div className="mt-4 flex gap-2">
                   <Button size="sm" variant="outline" fullWidth onClick={() => setOpen(p)}>View</Button>
-                  <Button size="sm" variant="ghost" icon={Download} aria-label="Download" onClick={() => toast.success('Payslip downloaded')} />
+                  <Button size="sm" variant="ghost" icon={Download} aria-label="Download" onClick={() => { downloadPayslipPdf(p, company); toast.success('Payslip downloaded'); }} />
                 </div>
               </Card>
             </Stagger.Item>
@@ -47,7 +48,7 @@ export function EmployeePayslips() {
         </Stagger>
       )}
 
-      <Modal open={!!open} onClose={() => setOpen(null)} title={`Payslip — ${open?.month} 2026`} size="md" footer={<Button icon={Download} onClick={() => toast.success('Payslip downloaded')}>Download PDF</Button>}>
+      <Modal open={!!open} onClose={() => setOpen(null)} title={`Payslip — ${open?.month} 2026`} size="md" footer={<Button icon={Download} onClick={() => { if (open) downloadPayslipPdf(open, company); toast.success('Payslip downloaded'); }}>Download PDF</Button>}>
         {open && (
           <div className="space-y-4">
             <div className="flex items-center justify-between border-b border-line pb-3">

@@ -19,22 +19,29 @@ type FormValues = z.infer<typeof schema>;
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const login = useAuthStore((s) => s.login);
+  const signIn = useAuthStore((s) => s.signIn);
   const [submitting, setSubmitting] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: 'faisal@techxserve.co', password: 'demo', remember: true },
+    defaultValues: { email: '', password: '', remember: true },
   });
 
   const onSubmit = async (values: FormValues) => {
     setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 500)); // simulate auth
-    login(values.email);
-    navigate(routes.dashboard);
+    setAuthError(null);
+    try {
+      await signIn(values.email, values.password);
+      navigate(routes.dashboard);
+    } catch {
+      setAuthError('Email or password is incorrect.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -68,6 +75,12 @@ export function LoginPage() {
             />
           </FormField>
 
+          {authError && (
+            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+              {authError}
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <label className="flex cursor-pointer items-center gap-2 text-sm text-content-muted">
               <Checkbox {...register('remember')} defaultChecked /> Remember me
@@ -82,18 +95,7 @@ export function LoginPage() {
           </Button>
         </form>
       </div>
-      <p className="mt-6 text-center text-xs text-content-subtle">
-        Demo build — any email/password signs you in.
-      </p>
-      <div className="mt-3 flex items-center justify-center gap-4 text-xs">
-        <button
-          type="button"
-          onClick={() => { login('faisal@techxserve.co'); navigate(routes.dashboard); }}
-          className="font-medium text-content-muted hover:text-brand-600"
-        >
-          Admin Panel →
-        </button>
-        <span className="text-content-subtle">·</span>
+      <div className="mt-6 flex items-center justify-center gap-4 text-xs">
         <a href={routes.cpLogin} className="font-medium text-content-muted hover:text-brand-600">Client Portal →</a>
         <span className="text-content-subtle">·</span>
         <a href={routes.epLogin} className="font-medium text-content-muted hover:text-brand-600">Employee Portal →</a>

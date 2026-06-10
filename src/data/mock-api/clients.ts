@@ -1,6 +1,7 @@
 import type { Client, Contract, Invoice, Paged } from '@/types';
-import { db, nextId } from './db';
-import { paginate, resolve, sortRows, textMatch, type ListParams } from './transport';
+import { supabase } from '@/lib/supabase';
+import { rowToCamel, rowsToCamel, toSnake } from '@/lib/case';
+import type { ListParams } from './transport';
 
 export interface ClientFilters extends ListParams {
   status?: string;
@@ -8,72 +9,76 @@ export interface ClientFilters extends ListParams {
   branch?: string;
 }
 
+/** invoice_list row -> Invoice (line items/payments loaded lazily elsewhere). */
+function toInvoice(r: Record<string, unknown>): Invoice {
+  const m = rowToCamel<Invoice & { hasAttachment: boolean }>(r)!;
+  return { ...m, lineItems: [], payments: [] };
+}
+
 export const clientsApi = {
-  list(params: ClientFilters = {}): Promise<Paged<Client>> {
-    let rows = db.clients.filter(
-      (c) =>
-        textMatch([c.name, c.email, c.code], params.search) &&
-        (!params.status || c.status === params.status) &&
-        (!params.industry || c.industry === params.industry) &&
-        (!params.branch || c.defaultBranchId === params.branch),
-    );
-    rows = sortRows(rows, params, {
-      name: (c) => c.name,
-      code: (c) => c.code,
-      outstanding: (c) => c.outstanding,
-      industry: (c) => c.industry,
-    });
-    return resolve(paginate(rows, params));
+  async list(params: ClientFilters = {}): Promise<Paged<Client>> {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = params.pageSize ?? 25;
+    const from = (page - 1) * pageSize;
+
+    let q = supabase.from('client_list').select('*', { count: 'exact' });
+    if (params.search) q = q.or(`name.ilike.%${params.search}%,email.ilike.%${params.search}%,code.ilike.%${params.search}%`);
+    if (params.status) q = q.eq('status', params.status);
+    if (params.industry) q = q.eq('industry', params.industry);
+    if (params.branch) q = q.eq('default_branch_id', params.branch);
+
+    const sortKey = params.sortKey ?? 'created_at';
+    const dbSort = ({ name: 'name', code: 'code', outstanding: 'outstanding', industry: 'industry' } as Record<string, string>)[sortKey] ?? sortKey;
+    q = q.order(dbSort, { ascending: params.sortDir !== 'desc' }).range(from, from + pageSize - 1);
+
+    const { data, count, error } = await q;
+    if (error) throw error;
+    return { rows: rowsToCamel<Client>(data), total: count ?? 0, page, pageSize };
   },
 
-  get(id: string): Promise<Client | undefined> {
-    return resolve(db.clients.find((c) => c.id === id));
+  async get(id: string): Promise<Client | undefined> {
+    const { data, error } = await supabase.from('client_list').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return rowToCamel<Client>(data) ?? undefined;
   },
 
-  contracts(clientId: string): Promise<Contract[]> {
-    return resolve(db.contracts.filter((c) => c.clientId === clientId));
+  async contracts(clientId: string): Promise<Contract[]> {
+    const { data, error } = await supabase.from('contract_list').select('*').eq('client_id', clientId);
+    if (error) throw error;
+    return rowsToCamel<Contract>(data);
   },
 
-  invoices(clientId: string): Promise<Invoice[]> {
-    return resolve(db.invoices.filter((i) => i.clientId === clientId));
+  async invoices(clientId: string): Promise<Invoice[]> {
+    const { data, error } = await supabase
+      .from('invoice_list')
+      .select('*')
+      .eq('client_id', clientId)
+      .order('issue_date', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(toInvoice);
   },
 
-  create(data: Partial<Client>): Promise<Client> {
-    const code = `CLI-${String(db.clients.length + 1).padStart(4, '0')}`;
-    const client: Client = {
-      id: nextId('cli'),
-      code,
-      name: data.name ?? 'Untitled Client',
-      type: data.type ?? 'Business',
-      industry: data.industry ?? 'Technology',
-      country: data.country ?? 'Pakistan',
-      email: data.email ?? '',
-      phone: data.phone ?? '',
-      status: 'Active',
-      currency: data.currency ?? 'PKR',
-      paymentTermsDays: data.paymentTermsDays ?? 30,
-      outstanding: 0,
-      activeContracts: 0,
-      createdAt: new Date().toISOString().slice(0, 10),
-      ...data,
-    };
-    db.clients.unshift(client);
-    return resolve(client);
+  async create(data: Partial<Client>): Promise<Client> {
+    // company_id + code are filled by DB default/trigger. Strip derived fields.
+    const { outstanding: _o, activeContracts: _a, id: _id, code: _c, createdAt: _ca, ...rest } = data;
+    const { data: row, error } = await supabase.from('clients').insert(toSnake(rest)).select().single();
+    if (error) throw error;
+    return rowToCamel<Client>(row)!;
   },
 
-  update(id: string, data: Partial<Client>): Promise<Client> {
-    const idx = db.clients.findIndex((c) => c.id === id);
-    if (idx < 0) throw new Error('Client not found');
-    db.clients[idx] = { ...db.clients[idx]!, ...data };
-    return resolve(db.clients[idx]!);
+  async update(id: string, data: Partial<Client>): Promise<Client> {
+    const { outstanding: _o, activeContracts: _a, id: _id, code: _c, createdAt: _ca, ...rest } = data;
+    const { data: row, error } = await supabase.from('clients').update(toSnake(rest)).eq('id', id).select().single();
+    if (error) throw error;
+    return rowToCamel<Client>(row)!;
   },
 
-  setStatus(id: string, status: Client['status']): Promise<Client> {
+  async setStatus(id: string, status: Client['status']): Promise<Client> {
     return clientsApi.update(id, { status });
   },
 
-  remove(id: string): Promise<void> {
-    db.clients = db.clients.filter((c) => c.id !== id);
-    return resolve(undefined);
+  async remove(id: string): Promise<void> {
+    const { error } = await supabase.from('clients').delete().eq('id', id);
+    if (error) throw error;
   },
 };

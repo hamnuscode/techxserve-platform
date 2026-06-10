@@ -7,7 +7,8 @@ import { Button, Tabs } from '@ds/primitives';
 import { Avatar } from '@ds/data-display';
 import { springs } from '@ds/motion';
 import { useUIStore } from '@/app/stores/ui';
-import { aiContextFor, mockReply } from './aiContext';
+import { aiContextFor } from './aiContext';
+import { aiApi, type ChatThread } from '@/data/mock-api';
 import { timeAgo } from '@/lib/format';
 
 interface Msg {
@@ -18,12 +19,6 @@ interface Msg {
 
 let mid = 0;
 
-const PAST_SESSIONS = [
-  { id: 's1', title: 'Overdue invoices review', at: new Date(Date.now() - 3600_000 * 5).toISOString() },
-  { id: 's2', title: 'Payroll vs last month', at: new Date(Date.now() - 3600_000 * 26).toISOString() },
-  { id: 's3', title: 'Licences expiring in Q3', at: new Date(Date.now() - 3600_000 * 70).toISOString() },
-];
-
 export function AIAssistant() {
   const open = useUIStore((s) => s.assistantOpen);
   const setOpen = useUIStore((s) => s.setAssistantOpen);
@@ -31,25 +26,46 @@ export function AIAssistant() {
   const ctx = aiContextFor(pathname);
   const [tab, setTab] = useState('chat');
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [threadId, setThreadId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
+  const [threads, setThreads] = useState<ChatThread[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, thinking]);
 
-  const send = (text: string) => {
-    if (!text.trim()) return;
-    const userMsg: Msg = { id: `m${++mid}`, role: 'user', text };
-    setMessages((m) => [...m, userMsg]);
+  // Load past sessions when the History tab opens.
+  useEffect(() => {
+    if (tab === 'history') aiApi.threads().then(setThreads).catch(() => setThreads([]));
+  }, [tab]);
+
+  const send = async (text: string) => {
+    if (!text.trim() || thinking) return;
+    const history = messages.map((m) => ({ role: m.role, content: m.text }));
+    setMessages((m) => [...m, { id: `m${++mid}`, role: 'user', text }]);
     setInput('');
     setThinking(true);
-    setTimeout(() => {
-      setMessages((m) => [...m, { id: `m${++mid}`, role: 'assistant', text: mockReply(text) }]);
+    try {
+      const { reply, threadId: tid } = await aiApi.chat([...history, { role: 'user', content: text }], threadId);
+      setThreadId(tid);
+      setMessages((m) => [...m, { id: `m${++mid}`, role: 'assistant', text: reply }]);
+    } catch (e) {
+      setMessages((m) => [...m, { id: `m${++mid}`, role: 'assistant', text: e instanceof Error ? `Sorry — ${e.message}` : 'Something went wrong. Try again.' }]);
+    } finally {
       setThinking(false);
-    }, 700);
+    }
   };
+
+  const openThread = async (t: ChatThread) => {
+    setThreadId(t.id);
+    const turns = await aiApi.messages(t.id);
+    setMessages(turns.map((m) => ({ id: `m${++mid}`, role: m.role, text: m.content })));
+    setTab('chat');
+  };
+
+  const newChat = () => { setThreadId(null); setMessages([]); setTab('chat'); };
 
   return (
     <>
@@ -161,12 +177,17 @@ export function AIAssistant() {
               </>
             ) : (
               <div className="flex-1 overflow-y-auto p-3">
-                {PAST_SESSIONS.map((s) => (
-                  <button key={s.id} onClick={() => { setTab('chat'); }} className="flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors hover:bg-surface-sunken">
+                <button onClick={newChat} className="mb-2 flex w-full items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-2 text-sm text-content-muted transition-colors hover:border-brand-400 hover:text-brand-700">
+                  <MessageSquare size={15} /> Start a new chat
+                </button>
+                {threads.length === 0 ? (
+                  <p className="py-8 text-center text-xs text-content-subtle">No past conversations yet.</p>
+                ) : threads.map((s) => (
+                  <button key={s.id} onClick={() => openThread(s)} className="flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors hover:bg-surface-sunken">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-sunken text-content-muted"><MessageSquare size={15} /></span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-content">{s.title}</span>
-                      <span className="block text-2xs text-content-subtle">{timeAgo(s.at)}</span>
+                      <span className="block text-2xs text-content-subtle">{timeAgo(s.updatedAt)}</span>
                     </span>
                   </button>
                 ))}

@@ -4,10 +4,13 @@ import { PageHeader, useFormatMoney } from '@/shared';
 import { Button, Card, Input } from '@ds/primitives';
 import { Skeleton, toast } from '@ds/feedback';
 import { formatDate } from '@/lib/format';
-import { useMyInvoices } from '../hooks';
+import { downloadStatementPdf } from '@/lib/pdf';
+import { company } from '@/data/fixtures';
+import { useMyClient, useMyInvoices } from '../hooks';
 
 export function ClientStatement() {
   const money = useFormatMoney();
+  const { data: client } = useMyClient();
   const { data: invoices = [], isLoading } = useMyInvoices();
   const [from, setFrom] = useState('2026-01-01');
   const [to, setTo] = useState('2026-12-31');
@@ -32,7 +35,12 @@ export function ClientStatement() {
 
   return (
     <div>
-      <PageHeader title="Statement of Account" actions={<Button icon={Download} onClick={() => toast.success('Statement PDF downloaded')}>Download PDF</Button>} />
+      <PageHeader title="Statement of Account" actions={<Button icon={Download} onClick={() => {
+        let bal = 0;
+        const pdfRows = rows.map((r) => { bal += r.debit - r.credit; return { ...r, balance: bal }; });
+        downloadStatementPdf(client?.name ?? 'Statement', pdfRows, company);
+        toast.success('Statement PDF downloaded');
+      }}>Download PDF</Button>} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Input type="date" sizeVariant="sm" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" />
         <span className="text-content-subtle">→</span>

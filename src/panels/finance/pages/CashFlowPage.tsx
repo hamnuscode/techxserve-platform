@@ -6,7 +6,11 @@ import { LineChart, BarChart } from '@ds/charts';
 import { chartRoles } from '@ds/tokens';
 import { KPICard } from '@ds/data-display';
 import { toast } from '@ds/feedback';
+import { downloadReportPdf } from '@/lib/pdf';
+import { company } from '@/data/fixtures';
 import { useCashflow } from '../hooks';
+
+const pkr = (n: number) => 'PKR ' + Math.round(n).toLocaleString('en-US');
 
 export function CashFlowPage() {
   const money = useFormatMoney();
@@ -26,7 +30,15 @@ export function CashFlowPage() {
       <PageHeader
         title="Cash Flow"
         description="Revenue, expenses and payroll over the last 12 months."
-        actions={<Button icon={Download} onClick={() => toast.success('Cash flow report PDF generated')}>Download Report</Button>}
+        actions={<Button icon={Download} onClick={() => {
+          downloadReportPdf('Cash Flow Report', [
+            { label: 'Revenue (12 mo)', value: pkr(totals.revenue) },
+            { label: 'Total Payroll', value: pkr(totals.payroll) },
+            { label: 'Total Expenses', value: pkr(totals.expenses) },
+            { label: 'Net', value: pkr(totals.net) },
+          ], company);
+          toast.success('Cash flow report PDF generated');
+        }}>Download Report</Button>}
       />
 
       <KpiStrip cols={4}>

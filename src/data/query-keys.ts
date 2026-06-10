@@ -47,4 +47,5 @@ export const qk = {
   branches: ['branches'] as const,
   departments: ['departments'] as const,
   notifications: ['notifications'] as const,
+  periods: ['accounting-periods'] as const,
 };

@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ticketsApi, type SupportTicket } from '@/data/mock-api';
 import { Download, Plus, FileSignature, LifeBuoy, ShieldCheck } from 'lucide-react';
-import { PageHeader, useFormatMoney } from '@/shared';
+import { PageHeader, useFormatMoney, ChangePasswordModal } from '@/shared';
 import { Button, Card, CardTitle, Input, Select, Textarea, FormField, Toggle } from '@ds/primitives';
 import { DataTable, StatusBadge, DateBadge, type Column } from '@ds/data-display';
 import { EmptyState, Modal, toast } from '@ds/feedback';
 import { formatDate, daysUntil } from '@/lib/format';
-import { useMyContracts, useMyClient } from '../hooks';
+import { useMyContracts, useMyClient, useMyClientId } from '../hooks';
 import type { Contract } from '@/types';
 
 /* ---- C2.8 Contracts ---- */
@@ -31,24 +33,20 @@ export function ClientContracts() {
 }
 
 /* ---- C2.9 Support / Tickets ---- */
-interface Ticket { id: string; subject: string; category: string; priority: string; status: string; updated: string; }
-const SEED_TICKETS: Ticket[] = [
-  { id: 'TKT-001', subject: 'Question about invoice INV-0003', category: 'Billing', priority: 'Medium', status: 'Open', updated: '2026-06-05' },
-  { id: 'TKT-002', subject: 'Request additional report', category: 'Feature Request', priority: 'Low', status: 'Resolved', updated: '2026-05-22' },
-];
-
 export function ClientSupport() {
-  const [tickets, setTickets] = useState(SEED_TICKETS);
+  const clientId = useMyClientId();
+  const qc = useQueryClient();
+  const { data: tickets = [] } = useQuery({ queryKey: ['cp-tickets'], queryFn: ticketsApi.mine });
   const [open, setOpen] = useState(false);
-  const { register, handleSubmit, reset } = useForm<{ subject: string; category: string; priority: string; description: string }>({ defaultValues: { category: 'Billing', priority: 'Medium' } });
+  const { register, handleSubmit, reset } = useForm<{ subject: string; category: SupportTicket['category']; priority: SupportTicket['priority']; description: string }>({ defaultValues: { category: 'Billing', priority: 'Medium' } });
 
-  const columns: Column<Ticket>[] = [
-    { key: 'id', header: 'Ticket #', render: (t) => <span className="nums font-medium text-brand-600">{t.id}</span> },
+  const columns: Column<SupportTicket>[] = [
+    { key: 'code', header: 'Ticket #', render: (t) => <span className="nums font-medium text-brand-600">{t.code}</span> },
     { key: 'subject', header: 'Subject', render: (t) => <span className="font-medium text-content">{t.subject}</span> },
     { key: 'category', header: 'Category', render: (t) => <span className="text-content-muted">{t.category}</span> },
-    { key: 'priority', header: 'Priority', render: (t) => <StatusBadge status={t.priority} size="sm" tone={t.priority === 'High' ? 'warning' : 'neutral'} /> },
+    { key: 'priority', header: 'Priority', render: (t) => <StatusBadge status={t.priority} size="sm" tone={t.priority === 'High' || t.priority === 'Urgent' ? 'warning' : 'neutral'} /> },
     { key: 'status', header: 'Status', render: (t) => <StatusBadge status={t.status} /> },
-    { key: 'updated', header: 'Last Update', render: (t) => formatDate(t.updated) },
+    { key: 'updated', header: 'Created', render: (t) => formatDate(t.createdAt) },
   ];
 
   return (
@@ -56,11 +54,16 @@ export function ClientSupport() {
       <PageHeader title="Support" description="Submit a request or track your tickets." actions={<Button icon={Plus} onClick={() => setOpen(true)}>New Ticket</Button>} />
       <DataTable data={tickets} columns={columns} rowKey={(t) => t.id} empty={<EmptyState icon={LifeBuoy} title="No tickets" description="Submit a ticket and we'll get back to you." action={<Button icon={Plus} onClick={() => setOpen(true)}>New Ticket</Button>} />} />
       <Modal open={open} onClose={() => setOpen(false)} title="New Ticket" size="md"
-        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={handleSubmit((v) => { setTickets((t) => [{ id: `TKT-${String(t.length + 1).padStart(3, '0')}`, subject: v.subject, category: v.category, priority: v.priority, status: 'Open', updated: new Date().toISOString().slice(0, 10) }, ...t]); toast.success('Ticket submitted'); reset(); setOpen(false); })}>Submit</Button></>}>
+        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={handleSubmit(async (v) => {
+          if (!clientId) return;
+          await ticketsApi.create({ clientId, subject: v.subject, category: v.category, priority: v.priority, description: v.description });
+          qc.invalidateQueries({ queryKey: ['cp-tickets'] });
+          toast.success('Ticket submitted'); reset(); setOpen(false);
+        })}>Submit</Button></>}>
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField label="Subject" required className="sm:col-span-2"><Input {...register('subject')} /></FormField>
           <FormField label="Category"><Select options={['Billing', 'Service Issue', 'Feature Request', 'Other'].map((c) => ({ value: c, label: c }))} {...register('category')} /></FormField>
-          <FormField label="Priority"><Select options={['Low', 'Medium', 'High'].map((p) => ({ value: p, label: p }))} {...register('priority')} /></FormField>
+          <FormField label="Priority"><Select options={['Low', 'Medium', 'High', 'Urgent'].map((p) => ({ value: p, label: p }))} {...register('priority')} /></FormField>
           <FormField label="Description" className="sm:col-span-2"><Textarea rows={3} {...register('description')} /></FormField>
         </div>
       </Modal>
@@ -70,6 +73,7 @@ export function ClientSupport() {
 
 /* ---- C2.10 My Profile ---- */
 export function ClientProfile() {
+  const [pwOpen, setPwOpen] = useState(false);
   const { data: client } = useMyClient();
   const [twoFactor, setTwoFactor] = useState(false);
   return (
@@ -99,13 +103,14 @@ export function ClientProfile() {
         <Card className="lg:col-span-2">
           <CardTitle className="mb-4 flex items-center gap-2"><ShieldCheck size={18} /> Password & Security</CardTitle>
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <Button variant="outline" onClick={() => toast.info('Change password (stub)')}>Change Password</Button>
+            <Button variant="outline" onClick={() => setPwOpen(true)}>Change Password</Button>
             <label className="flex items-center gap-3 text-sm">
               <span className="font-medium text-content">Two-factor authentication</span>
               <Toggle checked={twoFactor} onChange={(v) => { setTwoFactor(v); toast.success(v ? '2FA enabled' : '2FA disabled'); }} />
             </label>
           </div>
         </Card>
+        <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
       </div>
     </div>
   );

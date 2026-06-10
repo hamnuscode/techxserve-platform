@@ -4,7 +4,11 @@ import { PageHeader, useFormatMoney } from '@/shared';
 import { Button, Tabs, Card, CardTitle, Select, type TabItem } from '@ds/primitives';
 import { toast } from '@ds/feedback';
 import { cn } from '@/lib/cn';
-import { useCashflow } from '../hooks';
+import { downloadReportPdf } from '@/lib/pdf';
+import { company } from '@/data/fixtures';
+import { useCashflow, useClientProfitability, useChartOfAccounts, usePartners } from '../hooks';
+
+const pkr = (n: number) => 'PKR ' + Math.round(n).toLocaleString('en-US');
 
 interface PLRow {
   label: string;
@@ -18,6 +22,13 @@ export function FinancialReportsPage() {
   const money = useFormatMoney();
   const [tab, setTab] = useState('pl');
   const { data: cashflow = [] } = useCashflow();
+  const { data: profitability = [] } = useClientProfitability();
+  const { data: accounts = [] } = useChartOfAccounts();
+  const { data: partners = [] } = usePartners();
+  const coaGroups = useMemo(() => {
+    const order = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'];
+    return order.map((type) => ({ type, items: accounts.filter((a) => a.type === type) })).filter((g) => g.items.length);
+  }, [accounts]);
 
   const pl = useMemo<PLRow[]>(() => {
     const revenue = cashflow.reduce((s, m) => s + m.revenue, 0);
@@ -51,20 +62,14 @@ export function FinancialReportsPage() {
     { value: 'partnership', label: 'Partnership Report' },
   ];
 
-  const coa = [
-    { group: 'Assets', items: ['Cash & Bank', 'Accounts Receivable', 'Fixed Assets'] },
-    { group: 'Liabilities', items: ['Accounts Payable', 'Tax Payable', 'Loans'] },
-    { group: 'Equity', items: ["Partner's Capital", 'Retained Earnings'] },
-    { group: 'Revenue', items: ['Service Revenue', 'Other Income'] },
-    { group: 'Expenses', items: ['Salaries', 'Rent', 'Utilities', 'Marketing'] },
-  ];
+  const netProfit = pl[pl.length - 1]!.value;
 
   return (
     <div>
       <PageHeader
         title="Financial Reports"
         description="P&L, client statements, chart of accounts and partnership distribution."
-        actions={<Button icon={Download} onClick={() => toast.success('Report PDF generated')}>Export PDF</Button>}
+        actions={<Button icon={Download} onClick={() => { downloadReportPdf('Profit & Loss', pl.map((r) => ({ label: r.label, value: (r.value < 0 ? '(' + pkr(Math.abs(r.value)) + ')' : pkr(r.value)) })), company); toast.success('Report PDF generated'); }}>Export PDF</Button>}
       />
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -96,25 +101,55 @@ export function FinancialReportsPage() {
       )}
 
       {tab === 'statements' && (
-        <Card><CardTitle className="mb-4">Per-Client Profitability</CardTitle><p className="text-sm text-content-muted">Total Invoiced, Payroll Expense, Other Expenses and Total Income per client. Select a client to view the full statement.</p></Card>
+        <Card padding="none">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-content-subtle">
+                <th className="px-5 py-2.5">Client</th>
+                <th className="px-5 py-2.5 text-right">Total Invoiced</th>
+                <th className="px-5 py-2.5 text-right">Other Expenses</th>
+                <th className="px-5 py-2.5 text-right">Net Income</th>
+              </tr>
+            </thead>
+            <tbody>
+              {profitability.length === 0 && (
+                <tr><td colSpan={4} className="px-5 py-8 text-center text-content-muted">No client activity yet.</td></tr>
+              )}
+              {profitability.map((c) => (
+                <tr key={c.clientId} className="border-b border-line last:border-0">
+                  <td className="px-5 py-3 font-medium text-content">{c.clientName}</td>
+                  <td className="nums px-5 py-3 text-right text-content-muted">{money(c.invoiced)}</td>
+                  <td className="nums px-5 py-3 text-right text-content-muted">{money(c.expenses)}</td>
+                  <td className={cn('nums px-5 py-3 text-right font-semibold', c.netIncome < 0 ? 'text-danger' : 'text-content')}>
+                    {c.netIncome < 0 ? `(${money(Math.abs(c.netIncome))})` : money(c.netIncome)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
 
       {tab === 'coa' && (
+        coaGroups.length === 0 ? (
+          <Card><p className="py-6 text-center text-sm text-content-muted">No accounts configured yet.</p></Card>
+        ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {coa.map((g) => (
-            <Card key={g.group}>
-              <CardTitle className="mb-3">{g.group}</CardTitle>
+          {coaGroups.map((g) => (
+            <Card key={g.type}>
+              <CardTitle className="mb-3">{g.type === 'Asset' ? 'Assets' : g.type === 'Liability' ? 'Liabilities' : g.type === 'Expense' ? 'Expenses' : g.type}</CardTitle>
               <ul className="space-y-2 text-sm">
-                {g.items.map((it) => (
-                  <li key={it} className="flex items-center justify-between text-content-muted">
-                    <span>{it}</span>
-                    <span className="nums text-2xs text-content-subtle">{1000 + g.items.indexOf(it)}</span>
+                {g.items.map((a) => (
+                  <li key={a.id} className="flex items-center justify-between text-content-muted">
+                    <span>{a.name}</span>
+                    <span className="nums text-2xs text-content-subtle">{a.code}</span>
                   </li>
                 ))}
               </ul>
             </Card>
           ))}
         </div>
+        )
       )}
 
       {tab === 'partnership' && (
@@ -123,11 +158,12 @@ export function FinancialReportsPage() {
           <table className="w-full text-sm">
             <thead><tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-content-subtle"><th className="py-2">Partner</th><th className="py-2 text-right">Share</th><th className="py-2 text-right">Distribution</th></tr></thead>
             <tbody>
-              {[['Faisal Malik', 50], ['Sara Khan', 30], ['Bilal Iqbal', 20]].map(([name, share]) => (
-                <tr key={name as string} className="border-b border-line last:border-0">
-                  <td className="py-3 font-medium">{name}</td>
-                  <td className="nums py-3 text-right">{share}%</td>
-                  <td className="nums py-3 text-right font-semibold">{money(Math.round((pl[pl.length - 1]!.value * (share as number)) / 100))}</td>
+              {partners.length === 0 && <tr><td colSpan={3} className="py-6 text-center text-content-muted">No partners configured.</td></tr>}
+              {partners.map((p) => (
+                <tr key={p.id} className="border-b border-line last:border-0">
+                  <td className="py-3 font-medium">{p.name}</td>
+                  <td className="nums py-3 text-right">{p.sharePercent}%</td>
+                  <td className="nums py-3 text-right font-semibold">{money(Math.round((netProfit * p.sharePercent) / 100))}</td>
                 </tr>
               ))}
             </tbody>

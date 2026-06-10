@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Pencil, UserX, MoreHorizontal, Mail, Phone, Building2, Calendar, Wallet, CreditCard, FileText } from 'lucide-react';
-import { useFormatMoney } from '@/shared';
+import { useFormatMoney, InvitePortalButton } from '@/shared';
 import { Button, Card, CardHeader, CardTitle, Tabs, type TabItem } from '@ds/primitives';
 import { StatusBadge, Avatar } from '@ds/data-display';
 import { ErrorState, EmptyState, Skeleton, toast } from '@ds/feedback';
@@ -61,6 +61,7 @@ export function EmployeeDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <InvitePortalButton kind="employee" recordId={e.id} defaultEmail={e.email} />
           <Button variant="outline" icon={Pencil} onClick={() => setEditOpen(true)}>Edit</Button>
           <Button variant="outline" icon={UserX} onClick={() => toast.success('Marked inactive')}>Mark Inactive</Button>
           <DropdownMenu trigger={<Button variant="outline" icon={MoreHorizontal} aria-label="More" />} items={[{ label: 'View Payslip', onClick: () => navigate(routes.payroll) }, { label: 'Export Profile' }]} />

@@ -1,53 +1,45 @@
-import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Clock, CheckCircle2, Hourglass, Check, X } from 'lucide-react';
 import { PageHeader, KpiStrip } from '@/shared';
-import { Select } from '@ds/primitives';
-import { Button } from '@ds/primitives';
+import { Select, Button } from '@ds/primitives';
 import { KPICard, DataTable, StatusBadge, Avatar, type Column } from '@ds/data-display';
 import { EmptyState, toast } from '@ds/feedback';
-import { employeesApi } from '@/data/mock-api';
-import { qk } from '@/data/query-keys';
+import { formatDate } from '@/lib/format';
+import { timesheetsApi, type TimesheetSummary, type TimesheetStatus } from '@/data/mock-api';
 import { useUrlFilters } from '@/lib/useUrlFilters';
 
-interface Sheet { id: string; employee: string; week: string; hours: number; status: 'Draft' | 'Submitted' | 'Approved' | 'Rejected'; }
-
 export function TimesheetsPage() {
+  const qc = useQueryClient();
   const { values, set, reset, activeCount } = useUrlFilters({ status: '' });
-  const { data: emps } = useQuery({ queryKey: qk.employees({ pageSize: 1000 }), queryFn: () => employeesApi.list({ pageSize: 1000 }) });
-  const [overrides, setOverrides] = useState<Record<string, Sheet['status']>>({});
+  const { data: sheets = [] } = useQuery({
+    queryKey: ['timesheets', values.status],
+    queryFn: () => timesheetsApi.adminList(values.status || undefined),
+  });
 
-  const sheets: Sheet[] = useMemo(() => {
-    const rows = (emps?.rows ?? []).filter((e) => e.status === 'Active').slice(0, 14);
-    return rows.map((e, i) => ({
-      id: e.id,
-      employee: e.name,
-      week: '2–8 Jun 2026',
-      hours: 32 + ((i * 7) % 14),
-      status: overrides[e.id] ?? (i % 4 === 0 ? 'Approved' : i % 4 === 1 ? 'Submitted' : i % 4 === 2 ? 'Draft' : 'Submitted'),
-    }));
-  }, [emps, overrides]);
+  const decide = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: TimesheetStatus }) => timesheetsApi.setStatus(id, status),
+    onSuccess: (_d, v) => { qc.invalidateQueries({ queryKey: ['timesheets'] }); toast.success(`Timesheet ${v.status.toLowerCase()}`); },
+  });
 
-  const filtered = sheets.filter((s) => !values.status || s.status === values.status);
+  // KPIs are computed from the unfiltered set for a stable header.
+  const { data: all = [] } = useQuery({ queryKey: ['timesheets', ''], queryFn: () => timesheetsApi.adminList() });
   const kpis = {
-    submitted: sheets.filter((s) => s.status === 'Submitted').length,
-    approved: sheets.filter((s) => s.status === 'Approved').length,
-    hours: sheets.reduce((s, x) => s + x.hours, 0),
+    submitted: all.filter((s) => s.status === 'Submitted').length,
+    approved: all.filter((s) => s.status === 'Approved').length,
+    hours: all.reduce((s, x) => s + x.totalHours, 0),
   };
 
-  const setStatus = (id: string, status: Sheet['status']) => { setOverrides((o) => ({ ...o, [id]: status })); toast.success(`Timesheet ${status.toLowerCase()}`); };
-
-  const columns: Column<Sheet>[] = [
-    { key: 'employee', header: 'Employee', render: (s) => <div className="flex items-center gap-2.5"><Avatar name={s.employee} size="sm" /><span className="font-medium text-content">{s.employee}</span></div> },
-    { key: 'week', header: 'Week', render: (s) => s.week },
-    { key: 'hours', header: 'Hours', align: 'right', render: (s) => <span className="nums font-medium">{s.hours}h</span> },
+  const columns: Column<TimesheetSummary>[] = [
+    { key: 'employee', header: 'Employee', render: (s) => <div className="flex items-center gap-2.5"><Avatar name={s.employeeName} size="sm" /><span className="font-medium text-content">{s.employeeName}</span></div> },
+    { key: 'week', header: 'Week of', render: (s) => formatDate(s.weekStart) },
+    { key: 'hours', header: 'Hours', align: 'right', render: (s) => <span className="nums font-medium">{s.totalHours}h</span> },
     { key: 'status', header: 'Status', render: (s) => <StatusBadge status={s.status} tone={s.status === 'Approved' ? 'success' : s.status === 'Submitted' ? 'info' : s.status === 'Rejected' ? 'danger' : 'neutral'} /> },
     {
       key: 'actions', header: '', align: 'right',
       render: (s) => (s.status === 'Submitted' ? (
         <div className="flex justify-end gap-1">
-          <Button size="sm" variant="ghost" icon={Check} onClick={() => setStatus(s.id, 'Approved')}>Approve</Button>
-          <Button size="sm" variant="ghost" icon={X} onClick={() => setStatus(s.id, 'Rejected')}>Reject</Button>
+          <Button size="sm" variant="ghost" icon={Check} loading={decide.isPending} onClick={() => decide.mutate({ id: s.id, status: 'Approved' })}>Approve</Button>
+          <Button size="sm" variant="ghost" icon={X} onClick={() => decide.mutate({ id: s.id, status: 'Rejected' })}>Reject</Button>
         </div>
       ) : null),
     },
@@ -65,7 +57,7 @@ export function TimesheetsPage() {
         <Select sizeVariant="sm" className="w-40" value={values.status ?? ''} onChange={(e) => set({ status: e.target.value })} options={[{ value: '', label: 'All Statuses' }, ...['Draft', 'Submitted', 'Approved', 'Rejected'].map((s) => ({ value: s, label: s }))]} />
         {activeCount > 0 && <button onClick={reset} className="text-sm font-medium text-brand-600">Reset</button>}
       </div>
-      <DataTable data={filtered} columns={columns} rowKey={(s) => s.id} empty={<EmptyState icon={Clock} title="No timesheets" description="Submitted timesheets will appear here." />} />
+      <DataTable data={sheets} columns={columns} rowKey={(s) => s.id} empty={<EmptyState icon={Clock} title="No timesheets" description="Submitted timesheets will appear here." />} />
     </div>
   );
 }

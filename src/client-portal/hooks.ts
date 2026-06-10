@@ -1,19 +1,26 @@
 import { useQuery } from '@tanstack/react-query';
 import { clientsApi, projectsApi } from '@/data/mock-api';
 import { qk } from '@/data/query-keys';
+import { useAuthStore } from '@/app/stores/auth';
 
-/** The logged-in client is pinned to a fixture for this demo portal. */
-export const CLIENT_ID = 'cli-1';
+/** The logged-in portal user's linked client id (RLS guarantees they see only this one). */
+export function useMyClientId(): string | null {
+  return useAuthStore((s) => s.user?.clientId ?? null);
+}
 
 export function useMyClient() {
-  return useQuery({ queryKey: qk.client(CLIENT_ID), queryFn: () => clientsApi.get(CLIENT_ID) });
+  const id = useMyClientId();
+  return useQuery({ queryKey: qk.client(id ?? 'none'), queryFn: () => clientsApi.get(id!), enabled: !!id });
 }
 export function useMyInvoices() {
-  return useQuery({ queryKey: qk.clientInvoices(CLIENT_ID), queryFn: () => clientsApi.invoices(CLIENT_ID) });
+  const id = useMyClientId();
+  return useQuery({ queryKey: qk.clientInvoices(id ?? 'none'), queryFn: () => clientsApi.invoices(id!), enabled: !!id });
 }
 export function useMyContracts() {
-  return useQuery({ queryKey: qk.clientContracts(CLIENT_ID), queryFn: () => clientsApi.contracts(CLIENT_ID) });
+  const id = useMyClientId();
+  return useQuery({ queryKey: qk.clientContracts(id ?? 'none'), queryFn: () => clientsApi.contracts(id!), enabled: !!id });
 }
 export function useMyProjects() {
-  return useQuery({ queryKey: ['cp-projects', CLIENT_ID], queryFn: () => projectsApi.list({ client: CLIENT_ID, pageSize: 100 }) });
+  const id = useMyClientId();
+  return useQuery({ queryKey: ['cp-projects', id ?? 'none'], queryFn: () => projectsApi.list({ client: id!, pageSize: 100 }), enabled: !!id });
 }

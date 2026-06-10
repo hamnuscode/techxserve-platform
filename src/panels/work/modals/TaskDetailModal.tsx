@@ -137,7 +137,11 @@ export function TaskDetailModal({ task, onClose }: { task: Task | null; onClose:
               <span className="flex items-center gap-1.5 text-content-muted"><Clock size={14} /> Time Logged</span>
               <span className="nums font-semibold text-content">{task.hoursLogged}h</span>
             </div>
-            <Button size="sm" variant="outline" fullWidth className="mt-2" onClick={() => toast.info('Log time (stub)')}>Log time</Button>
+            <Button size="sm" variant="outline" fullWidth className="mt-2" onClick={() => {
+              const raw = window.prompt('Hours to log on this task?');
+              const h = Number(raw);
+              if (raw && h > 0) { patch({ hoursLogged: task.hoursLogged + h }); toast.success(`Logged ${h}h`); }
+            }}>Log time</Button>
           </div>
 
           <p className="text-2xs text-content-subtle">Created by {task.createdBy} · {formatDate(task.createdAt)}</p>

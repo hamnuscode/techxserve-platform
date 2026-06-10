@@ -13,6 +13,7 @@ import { AlertBanner } from '../components/AlertBanner';
 import { BankOverview } from '../components/BankOverview';
 import { ActivityFeed } from '../components/ActivityFeed';
 import { useAuthStore } from '@/app/stores/auth';
+import { useDashboardWidgets } from '@/panels/admin/hooks';
 import { routes } from '@/config/routes';
 
 function ChartCard({
@@ -50,6 +51,8 @@ export function DashboardPage() {
   const money = useFormatMoney();
   const user = useAuthStore((s) => s.user);
   const { data, isLoading, isError, refetch } = useDashboard();
+  const { data: hiddenWidgets = [] } = useDashboardWidgets();
+  const show = (key: string) => !hiddenWidgets.includes(key);
 
   const k = data?.kpis;
   const noData = !isLoading && !data;
@@ -71,6 +74,7 @@ export function DashboardPage() {
 
       {/* KPI cards (A3 §B) */}
       <KpiStrip cols={4}>
+        {show('employees') && (
         <KPICard
           label="Total Employees"
           value={k?.totalEmployees ?? 0}
@@ -82,6 +86,8 @@ export function DashboardPage() {
           delta={k ? { value: `+${k.employeeDelta} this month`, direction: 'up' } : undefined}
           onClick={() => navigate(routes.employees)}
         />
+        )}
+        {show('attendance') && (
         <KPICard
           label="Attendance Today"
           value={k?.attendanceToday ?? 0}
@@ -92,6 +98,8 @@ export function DashboardPage() {
           delta={k ? { value: `${k.attendanceDelta}% vs yesterday`, direction: 'up' } : undefined}
           onClick={() => navigate(routes.attendance)}
         />
+        )}
+        {show('expenses') && (
         <KPICard
           label="Total Expenses MTD"
           value={k?.expensesMtd ?? 0}
@@ -102,6 +110,8 @@ export function DashboardPage() {
           delta={k ? { value: `${Math.abs(k.expensesDelta)}% vs last MTD`, direction: k.expensesDelta < 0 ? 'down' : 'up', positive: k.expensesDelta < 0 } : undefined}
           onClick={() => navigate(routes.expenses)}
         />
+        )}
+        {show('payroll') && (
         <KPICard
           label="Payroll MTD"
           value={k?.payrollMtd ?? 0}
@@ -112,6 +122,7 @@ export function DashboardPage() {
           delta={k ? { value: k.payrollStatus, direction: 'up', positive: k.payrollStatus === 'Processed' } : undefined}
           onClick={() => navigate(routes.payroll)}
         />
+        )}
       </KpiStrip>
 
       {isError || noData ? (
@@ -119,11 +130,14 @@ export function DashboardPage() {
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Left: banks */}
+          {show('banks') && (
           <div className="lg:col-span-1">
             {data && <BankOverview banks={data.banks} totalCash={data.totalCash} />}
           </div>
+          )}
 
           {/* Right: revenue chart */}
+          {show('revenue') && (
           <div className="lg:col-span-2">
             <ChartCard title="Revenue by Client" onRefresh={() => refetch()}>
               {data && (
@@ -137,8 +151,10 @@ export function DashboardPage() {
               )}
             </ChartCard>
           </div>
+          )}
 
           {/* Bottom-left: attendance trend */}
+          {show('attendanceTrend') && (
           <div className="lg:col-span-2">
             <ChartCard title="Attendance Trend (7 days)">
               {data && (
@@ -155,11 +171,14 @@ export function DashboardPage() {
               )}
             </ChartCard>
           </div>
+          )}
 
           {/* Bottom-right: activity */}
+          {show('activity') && (
           <div className="lg:col-span-1">
             {data && <ActivityFeed events={data.activity} />}
           </div>
+          )}
         </div>
       )}
     </div>

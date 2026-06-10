@@ -3,20 +3,59 @@ import { FileText, CheckCircle2, Clock, Percent, MoreHorizontal, Check, X, Arrow
 import { PageHeader, KpiStrip, FilterBar, useFormatMoney } from '@/shared';
 import { Button, Select } from '@ds/primitives';
 import { KPICard, DataTable, StatusBadge, DateBadge, Pagination, type Column, type SortState } from '@ds/data-display';
-import { EmptyState, toast } from '@ds/feedback';
+import { EmptyState, Modal, toast } from '@ds/feedback';
 import { DropdownMenu } from '@ds/overlays';
+import { Input, FormField } from '@ds/primitives';
 import { formatDate, daysUntil } from '@/lib/format';
 import { useUrlFilters } from '@/lib/useUrlFilters';
 import { useQuotes, useQuoteMutations } from '../hooks/useQuotes';
+import { useClients } from '../hooks/useClients';
 import type { Quote } from '@/types';
 
 const PAGE_SIZE = 25;
 const STATUSES = ['Draft', 'Sent', 'Accepted', 'Declined', 'Expired'];
 
+function CreateQuoteModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { create } = useQuoteMutations();
+  const { data: clients } = useClients({ pageSize: 1000 });
+  const today = new Date().toISOString().slice(0, 10);
+  const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const [clientId, setClientId] = useState('');
+  const [issueDate, setIssueDate] = useState(today);
+  const [expiryDate, setExpiryDate] = useState(in30);
+  const [total, setTotal] = useState('');
+
+  const submit = async () => {
+    if (!clientId || !total) return toast.error('Pick a client and enter an amount.');
+    await create.mutateAsync({ clientId, issueDate, expiryDate, total: Number(total), status: 'Draft' });
+    toast.success('Quote created');
+    setClientId(''); setTotal('');
+    onClose();
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="New Quote" size="sm"
+      footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button loading={create.isPending} onClick={submit}>Create Quote</Button></>}>
+      <div className="space-y-4">
+        <FormField label="Client" required>
+          <Select value={clientId} onChange={(e) => setClientId(e.target.value)}
+            options={[{ value: '', label: 'Select a client…' }, ...(clients?.rows ?? []).map((c) => ({ value: c.id, label: `${c.name} (${c.code})` }))]} />
+        </FormField>
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Issue Date"><Input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></FormField>
+          <FormField label="Expiry Date"><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} /></FormField>
+        </div>
+        <FormField label="Amount (PKR)" required><Input type="number" value={total} onChange={(e) => setTotal(e.target.value)} placeholder="0" /></FormField>
+      </div>
+    </Modal>
+  );
+}
+
 export function QuotesListPage() {
   const money = useFormatMoney();
   const { values, set, reset, activeCount } = useUrlFilters({ search: '', status: '', page: '1' });
   const [sort, setSort] = useState<SortState>({ key: 'issueDate', dir: 'desc' });
+  const [createOpen, setCreateOpen] = useState(false);
   const { setStatus, convert } = useQuoteMutations();
 
   const page = Number(values.page) || 1;
@@ -60,7 +99,7 @@ export function QuotesListPage() {
 
   return (
     <div>
-      <PageHeader title="Quotes / Proposals" description="Issue quotes and convert accepted ones into invoices." actions={<Button icon={FileText} onClick={() => toast.info('New quote form (stub)')}>New Quote</Button>} />
+      <PageHeader title="Quotes / Proposals" description="Issue quotes and convert accepted ones into invoices." actions={<Button icon={FileText} onClick={() => setCreateOpen(true)}>New Quote</Button>} />
 
       <KpiStrip cols={4}>
         <KPICard label="Total Quoted" value={kpis.quoted} format={(n) => money(n, { compact: true })} icon={FileText} tone="brand" />
@@ -74,9 +113,11 @@ export function QuotesListPage() {
       </FilterBar>
 
       <DataTable data={data?.rows ?? []} columns={columns} rowKey={(q) => q.id} loading={isLoading} error={isError} onRetry={() => refetch()} sort={sort} onSortChange={setSort}
-        empty={<EmptyState icon={FileText} title="No quotes yet" description="Create a quote to start winning new business." action={<Button icon={FileText} onClick={() => toast.info('New quote (stub)')}>New Quote</Button>} />} />
+        empty={<EmptyState icon={FileText} title="No quotes yet" description="Create a quote to start winning new business." action={<Button icon={FileText} onClick={() => setCreateOpen(true)}>New Quote</Button>} />} />
 
       {data && data.total > 0 && <div className="mt-4"><Pagination page={page} pageSize={PAGE_SIZE} total={data.total} onPageChange={(p) => set({ page: String(p) })} /></div>}
+
+      <CreateQuoteModal open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   );
 }
